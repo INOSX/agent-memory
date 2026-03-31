@@ -1,0 +1,58 @@
+{
+  "name": "@inosx/agent-memory",
+  "version": "0.1.0",
+  "description": "File-based memory system for AI agents — vault, search, context injection, session checkpoints, and compaction",
+  "keywords": [
+    "ai",
+    "agents",
+    "memory",
+    "vault",
+    "search",
+    "bm25",
+    "context-injection",
+    "session",
+    "checkpoint",
+    "compaction"
+  ],
+  "homepage": "https://github.com/INOSX/agent-memory#readme",
+  "bugs": {
+    "url": "https://github.com/INOSX/agent-memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/INOSX/agent-memory.git"
+  },
+  "license": "MIT",
+  "author": "Mario Mayerle <mario@inosx.com> (https://inosx.com)",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "minisearch": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}
