@@ -4,6 +4,8 @@ File-based memory system for AI agents. Gives your agents persistent memory usin
 
 Built and battle-tested inside [AITEAM-X](https://github.com/INOSX/AITeam), extracted as a standalone framework.
 
+![Architecture](docs/architecture.png)
+
 ## Features
 
 - **Vault** — Categorized markdown persistence (decisions, lessons, tasks, projects, handoffs — or your own categories)
@@ -181,6 +183,12 @@ Use PostgreSQL for the persistence layer. Considered SQLite but need concurrent 
 
 ---
 ```
+
+## Documentation
+
+- [Memory System — Technical Reference](docs/memory-system.md) — Architecture overview, 5-layer design, data flow diagrams, API details, error handling patterns, and system constants
+- [Memory System — User Guide](docs/memory-system-guide.md) — How to use the memory system: vault categories, session lifecycle, context injection, best practices, troubleshooting, and use cases
+- [Memory System — Comparison](docs/memory-system-comparison.md) — Detailed comparison with ChatGPT Memory, Claude Memory, OpenClaw Native, and ClawVault
 
 ## Requirements
 
