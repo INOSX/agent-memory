@@ -4,6 +4,7 @@ Index of documentation for the package.
 
 | Document | Description |
 |----------|-------------|
+| [**Memória explicada para leigos**](memoria-explicada-leigos.md) | **PT:** pitch acessível — o que é o framework, para quem, benefícios e limitações (não é manual técnico) |
 | [**User Guide**](user-guide.md) | **Start here:** installation, concepts, library usage, CLI workflows, BMAD integration, troubleshooting |
 | [Memory System (technical)](memory-system.md) | Architecture (five layers), data flow, REST-style API notes, compaction steps, types |
 | [Memory System Guide (dashboard)](memory-system-guide.md) | End-user guide when memory is used inside an agent dashboard (sessions, Memory Vault UI, lifecycle) |

@@ -1,7 +1,7 @@
 # Persistent Memory System — @inosx/agent-memory
 
 **Version:** 3.0
-**Updated:** 2026-03-24
+**Updated:** 2026-04-01
 **Status:** Implemented and in production
 
 ---
@@ -36,6 +36,8 @@ The memory system solves the *context death* problem: with every new session, AI
 
 ### Simplified data flow
 
+High-level loop: the **UI** writes **conversations**, **checkpoints**, and **handoffs**; **compaction** maintains size and feeds the **vault**; the **vault** and **index** feed **search** and **injection**, which produce the **enriched prompt** for the agent.
+
 ```mermaid
 flowchart LR
     UI["Frontend\n(MainContent)"] -->|auto-save 30s| CONV["Conversations\n(.memory/conversations/)"]
@@ -50,6 +52,67 @@ flowchart LR
     VAULT --> INJECT
     INJECT -->|enriched prompt| AGENT["Agent CLI"]
 ```
+
+### Expanded data flow
+
+The diagram below splits the same system into **four planes**: what gets written at runtime, where it lives on disk, how maintenance reshapes data, and how read-time assembly builds the next prompt. Arrows show the *dominant* direction of data; some paths (e.g. `recover` reading checkpoints) are detailed in the list after the chart.
+
+```mermaid
+flowchart TB
+    subgraph W["Write path (dashboard / host app)"]
+        UI["UI: MainContent, timers, sendBeacon"]
+        UI -->|"JSON autosave ~30s"| CONV[".memory/conversations/{agentId}.json"]
+        UI -->|"checkpoint ~30s"| CP[".memory/.vault/checkpoints/{agentId}.json"]
+        UI -->|"sleep / close bubble"| HO["append handoffs.md"]
+        UI -->|"optional: direct vault edits"| VAULT
+        HO --> VAULT["Per-agent vault: decisions, lessons, tasks, projects, handoffs"]
+    end
+
+    subgraph G["Global context"]
+        PROJ["_project.md shared across agents"]
+    end
+
+    subgraph M["Layer 5 — Compaction (compact.ts)"]
+        COMPACT["compact.run() steps A–E"]
+        COMPACT -->|"Step B: extract + trim"| CONV
+        COMPACT -->|"Step B: appendEntry tagged compacted"| VAULT
+        COMPACT -->|"Step A: expiry"| CP
+        COMPACT -->|"Step D"| IDX[".vault/index.json rebuild"]
+        VAULT --> COMPACT
+    end
+
+    subgraph R["Layer 3–4 — Retrieval (search + inject)"]
+        VAULT -->|"vault reads"| INJ["inject.buildContext"]
+        PROJ --> INJ
+        CP -->|"recover() if valid"| INJ
+        IDX -->|"BM25 query"| SRCH["search.search"]
+        SRCH --> INJ
+        INJ -->|"buildTextBlock + token trim"| OUT["Prompt: MEMORY CONTEXT + command"]
+    end
+
+    OUT --> AGENT["Agent CLI / SSE stream"]
+```
+
+**Read-time assembly order (injection)** — `buildContext` composes sources in a fixed priority; trimming happens when the estimated token total exceeds the budget (`tokenBudget`, default 2 000):
+
+| Stage | Source | Role |
+|-------|--------|------|
+| 1 | `_project.md` | Global project scope (always injected first) |
+| 2 | Latest `handoffs` entry | “Last session” narrative |
+| 3 | `search(command)` on `decisions` | Top 3 BM25 hits |
+| 4 | `search(command)` on `lessons` | Top 2 BM25 hits |
+| 5 | `tasks` with open `[ ]` | Full list of unchecked items |
+| 6 | `recover(agentId)` | Up to last 3 messages if checkpoint exists and not expired |
+
+**Trim when over budget:** lessons → decisions → handoff (handoff discarded last).
+
+**Write-time side paths (not shown as separate nodes above):**
+
+- Each `appendEntry` / `deleteEntry` on the vault triggers a **search index update** (`updateIndex` / `removeFromIndex`); failures are non-fatal and the next compaction rebuilds the index.
+- **Vault writes** are serialized through a `writeQueue` so concurrent markdown updates do not corrupt files.
+- **Compaction** is periodic (e.g. dashboard: ~10 min) or on demand (`POST /api/memory/compact` in the host app); it also caps vault entries per category and writes `compact-log.json`.
+
+**Boundary:** anything that only uses the **library** (`createMemory`) without the dashboard still follows the same disk layout; the “UI” node is replaced by your host (CLI, API route, worker) calling `vault`, `session`, and `inject` explicitly.
 
 ---
 

@@ -1,7 +1,7 @@
 # Memory System Guide
 
 **For:** Users of AI agent dashboards with @inosx/agent-memory  
-**Updated:** 2026-03-24  
+**Updated:** 2026-04-01  
 **Version:** 3.0
 
 > **Using the npm package only (no dashboard)?** See the [User Guide](user-guide.md) for installation, CLI, and library usage in standalone projects.
@@ -97,9 +97,64 @@ Open chat
 
 ---
 
+## Workflow: new session (end-to-end)
+
+A **new session** means you are starting a **fresh chat** with an agent: there is no active `chatId` to resume, so the backend treats it as a *new* run and performs **full memory injection** before the agent sees your first instruction. That is different from **resuming** an existing thread (see below).
+
+### What “new session” means in the dashboard
+
+| Situation | Typical behavior |
+|-----------|------------------|
+| **New session** | First message after opening the agent bubble, or after starting a new thread. The API builds the full **MEMORY CONTEXT** block from disk (project file, vault, search, checkpoint recovery) and prepends it to the prompt. |
+| **Resume** | You continue a conversation that already has a `chatId` stored (e.g. `chat-sessions.json` maps agent → chat). The host app may send **only the new user message** to the agent, because the live conversation history is already loaded — it does **not** repeat the full injected memory block on every turn the same way. |
+
+So the “memory guide” behavior described in [How context is injected in the next session](#how-context-is-injected-in-the-next-session) applies most visibly when you **start** or **restart** a chat line, not on every keystroke inside a long thread.
+
+### Step-by-step: from click to first agent response (new session)
+
+1. **You open an agent** (bubble or drawer) and send the **first** message of that thread (or the UI sends an initial command to start the run).
+2. The dashboard calls **`POST /api/agents/command`** without an existing chat session to resume — the server treats this as a **new session** path.
+3. The memory layer runs **`buildContext(agentId, command)`** using your first message as the **search query** for BM25 (so “relevant” decisions and lessons match what you are about to discuss).
+4. It assembles **`InjectContext`**: `_project.md`, latest handoff, top decisions/lessons from search, open tasks, and optionally **`recover(agentId)`** if a checkpoint from the last 7 days exists.
+5. **`buildTextBlock`** turns that into the markdown **MEMORY CONTEXT** section; the server combines it with the agent persona and your command, then **spawns the Agent CLI**.
+6. The agent streams output (e.g. **SSE**) back to the UI.
+7. **In parallel**, the usual lifecycle begins: **auto-save** and **checkpoint** every ~30s to `.memory/conversations/` and `.memory/.vault/checkpoints/`, so the *next* time you start a new session, steps 3–4 have fresher data.
+
+### Sequence diagram (new session)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant UI as Dashboard UI
+    participant API as API route
+    participant Mem as Memory buildContext
+    participant AG as Agent CLI
+
+    U->>UI: Open agent, send first message (new thread)
+    UI->>API: POST /api/agents/command (no resume)
+    API->>Mem: buildContext(agentId, userCommand)
+    Mem->>Mem: Read _project.md, vault, BM25 search, recover checkpoint
+    Mem-->>API: InjectContext
+    API->>API: buildTextBlock + persona + command
+    API->>AG: Spawn process with enriched prompt
+    AG-->>UI: Stream tokens (e.g. SSE)
+    loop While chat is open (~30s)
+        UI->>UI: Save conversation JSON + checkpoint
+    end
+```
+
+### How this connects to the lifecycle diagram above
+
+- **Before** this workflow: past sessions may have written **handoffs**, **vault** entries, and **checkpoints** (see [Session lifecycle](#session-lifecycle)).
+- **During** the new session: injection reads those artifacts once at **start**.
+- **After** you close the chat (× or unexpected close): new data is written for the **next** new session.
+
+---
+
 ## How context is injected in the next session
 
-This is the central mechanism of the system: what exactly the agent receives when you start a new conversation.
+This is the central mechanism of the system: what exactly the agent receives when you start a new conversation. (For the **order of sources and token trimming**, see the section above and the bullets below.)
 
 ### What is injected
 
