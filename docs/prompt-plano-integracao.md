@@ -51,19 +51,35 @@ Este ficheiro serve para **copiar e colar noutra IA** (ou adaptar num chat). O b
 
 **Ficheiros relevantes:** `_project.md` (contexto partilhado); por agente, ficheiros por categoria; `conversations/`, `.vault/` (checkpoints, índice, logs de compactação). Documentação detalhada: README e `docs/user-guide.md` do pacote.
 
+### Padrão de ativação de agentes (crítico — não ignores)
+
+Cada agente **deve ler o seu vault na ativação** — antes de cumprimentar o utilizador ou executar qualquer tarefa. Sem este passo, o agente perde contexto de sessões anteriores (decisões, lições, regras, handoffs) e pode contradizer instruções já registadas na memória.
+
+**Fluxo de ativação recomendado (por agente):**
+
+1. Carregar configuração (IDs, idioma, paths).
+2. **Ler ficheiros do vault** — `<dir>/<agentId>/decisions.md`, `lessons.md`, `tasks.md`, `projects.md`, `handoffs.md` (os que existirem). Tratar este conteúdo como **autoritativo** durante toda a sessão.
+3. Carregar contexto partilhado (`_project.md`).
+4. Saudação e apresentação de capacidades ao utilizador.
+
+> **Porquê?** Se o passo 2 for omitido, o agente comporta-se como se fosse a sua primeira sessão — ignora decisões tomadas, lições aprendidas e até regras explícitas gravadas no vault. Este problema foi identificado em produção: um agente violou uma regra registada na sua própria memória porque o skill de ativação não incluía a leitura do vault.
+
+O plano de integração **deve garantir** que toda definição de agente (skill, prompt, system message ou orquestrador) inclua este passo de leitura obrigatória.
+
 ### O que deves produzir (estrutura obrigatória)
 
 1. **Resumo executivo** — O que muda no produto e porquê (2–5 frases).
 2. **Encaixe com o contexto do projeto** — Stack, runtime, e se a abordagem ficheiro-em-disco é aceitável; alternativas se houver bloqueio (ex.: só CLI no dev, volume montado em produção).
 3. **Arquitetura de integração** — Onde `createMemory` é instanciado (um singleton vs por pedido); como alinhar **cwd** / paths com o diretório `.memory`; mapeamento **IDs de agentes** entre orquestração e ficheiros.
 4. **Fluxos de dados** — Quando escrever no vault; quando chamar `buildContext` / `buildTextBlock` antes do LLM; quando guardar checkpoints; política de **compaction** (agendada, manual, após N mensagens).
-5. **Superfície de uso** — Proposta **biblioteca vs CLI vs híbrido** para este projeto; o que operadores ou devs fazem no dia a dia.
-6. **Configuração** — Valores recomendados para `tokenBudget`, expiração de checkpoints, limites de compactação; customização opcional de `insightExtractor` e categorias.
-7. **Segurança e operações** — `.gitignore` / segredos em `_project.md`; backups; ambientes (dev/staging/prod); risco de path traversal se `agentId` vier de input externo.
-8. **Plano de rollout** — Fases (MVP → completo): o que entrega cada fase e critérios de “feito”.
-9. **Riscos e mitigações** — Tabela breve.
-10. **Critérios de sucesso** — Mensuráveis ou verificáveis (ex.: “injeção presente em 100% dos pedidos ao agente X”; “compactação semanal”).
-11. **Perguntas em aberto** — Lista o que ainda falta decidir no projeto alvo.
+5. **Ativação de agentes e carregamento de memória** — Definir o hook de ativação que cada agente executa ao iniciar sessão: leitura obrigatória do vault (`.memory/<agentId>/`) antes de qualquer interação; como garantir que o conteúdo lido é tratado como autoritativo; como lidar com vaults vazios (primeira sessão); integração com `inject.buildContext` ou leitura direta dos ficheiros Markdown.
+6. **Superfície de uso** — Proposta **biblioteca vs CLI vs híbrido** para este projeto; o que operadores ou devs fazem no dia a dia.
+7. **Configuração** — Valores recomendados para `tokenBudget`, expiração de checkpoints, limites de compactação; customização opcional de `insightExtractor` e categorias.
+8. **Segurança e operações** — `.gitignore` / segredos em `_project.md`; backups; ambientes (dev/staging/prod); risco de path traversal se `agentId` vier de input externo.
+9. **Plano de rollout** — Fases (MVP → completo): o que entrega cada fase e critérios de "feito".
+10. **Riscos e mitigações** — Tabela breve.
+11. **Critérios de sucesso** — Mensuráveis ou verificáveis (ex.: "injeção presente em 100% dos pedidos ao agente X"; "leitura de vault em 100% das ativações"; "compactação semanal").
+12. **Perguntas em aberto** — Lista o que ainda falta decidir no projeto alvo.
 
 **Tom:** Português (ou o idioma do «Contexto do projeto»), técnico mas legível. Usa listas e tabelas onde ajude. **Não inventes APIs** que não constem do inventário acima; se precisares de detalhe, indica «confirmar na documentação do pacote» com o nome do símbolo.
 
