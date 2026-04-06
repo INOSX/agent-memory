@@ -15,6 +15,7 @@ Built and battle-tested inside [AITEAM-X](https://github.com/INOSX/AITeam), extr
 - **Compaction** — Extract insights from conversations, trim old messages, cap vault entries
 - **Migration** — One-way migration from flat markdown to structured vault format
 - **CLI** — `agent-memory` command to list agents, manage vault entries, search, edit project context, preview injection, run compaction, and migrate
+- **Viewer** — Built-in standalone web dashboard to browse agents, vault entries, search, and run compaction — zero extra dependencies
 
 ## Install
 
@@ -50,6 +51,7 @@ Global options (place before the subcommand, e.g. `agent-memory --dir ./.memory 
 | `inject preview <agentId> [command...]` | Print the same memory block as `buildTextBlock(buildContext(...))` |
 | `compact` | Run full compaction (checkpoints, conversations, vault cap, index rebuild) |
 | `migrate` | Migrate flat `*.md` per agent into vault layout |
+| `viewer` | Launch the standalone web dashboard (`--port`, `--no-open`) |
 
 Categories for vault commands must be one of: `decisions`, `lessons`, `tasks`, `projects`, `handoffs`.
 
@@ -70,6 +72,12 @@ agent-memory inject preview bmad-master "fix the login flow"
 
 # Maintenance
 agent-memory compact
+
+# Launch the web viewer dashboard
+agent-memory viewer
+
+# Custom port and memory directory
+agent-memory --dir /path/to/.memory viewer --port 4000
 ```
 
 ## Quick Start
@@ -235,6 +243,32 @@ Use PostgreSQL for the persistence layer. Considered SQLite but need concurrent 
 ---
 ```
 
+## Viewer
+
+The package includes a built-in web dashboard for browsing and managing agent memory visually. No extra dependencies — it's a lightweight Node.js HTTP server with inline HTML/CSS/JS.
+
+```bash
+# Launch on default port 3737
+agent-memory viewer
+
+# Custom port, don't auto-open browser
+agent-memory --dir .memory viewer --port 4000 --no-open
+```
+
+![Viewer](docs/viewer-screenshot.png)
+
+**Features:**
+- Browse all agents and their vault entries
+- Navigate categories (decisions, lessons, tasks, projects, handoffs) with counts
+- Full-text BM25 search across all agents
+- Create, edit, and delete entries
+- View shared project context (`_project.md`)
+- Run compaction from the UI
+- Filter agents by name
+- Stats overview (total agents, total entries)
+
+See [Viewer Guide](docs/viewer-guide.md) for details.
+
 ## Documentation
 
 - [**User Guide**](docs/user-guide.md) — Package overview, installation, core concepts, library and **CLI** usage, BMAD-style integration, troubleshooting
@@ -242,6 +276,7 @@ Use PostgreSQL for the persistence layer. Considered SQLite but need concurrent 
 - [Memory System — Technical Reference](docs/memory-system.md) — Architecture overview, 5-layer design, data flow diagrams, API details, error handling patterns, and system constants
 - [Memory System — Dashboard Guide](docs/memory-system-guide.md) — Using memory inside an AI agent dashboard (vault UI, session lifecycle, compaction, troubleshooting)
 - [Memory System — Comparison](docs/memory-system-comparison.md) — Detailed comparison with ChatGPT Memory, Claude Memory, OpenClaw Native, and ClawVault
+- [**Viewer Guide**](docs/viewer-guide.md) — Standalone web dashboard: usage, features, API endpoints, and customization
 
 ## Requirements
 

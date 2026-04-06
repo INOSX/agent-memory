@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import { createMemory } from "./index.js";
 import { DEFAULT_CATEGORIES } from "./types.js";
+import { startViewer } from "./viewer.js";
 import type { AgentMemory } from "./index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -464,6 +465,18 @@ async function main(): Promise<void> {
         const msg = e instanceof Error ? e.message : String(e);
         outError(cmd, msg);
       }
+    });
+
+  program
+    .command("viewer")
+    .description("Launch the standalone web-based memory dashboard")
+    .option("-p, --port <n>", "HTTP server port", "3737")
+    .option("--no-open", "Don't auto-open the browser")
+    .action(function (this: Command, opts: { port?: string; open?: boolean }) {
+      const cmd = this;
+      const mem = createMem(cmd);
+      const port = Math.max(1, parseInt(opts.port ?? "3737", 10) || 3737);
+      startViewer({ mem, port, open: opts.open !== false });
     });
 
   await program.parseAsync(process.argv);

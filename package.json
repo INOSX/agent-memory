@@ -1,6 +1,6 @@
 {
   "name": "@inosx/agent-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "File-based memory system for AI agents — vault, search, context injection, session checkpoints, and compaction",
   "keywords": [
     "ai",
