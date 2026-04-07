@@ -60,4 +60,20 @@ describe("agent-memory CLI", () => {
     expect(data.skipped).toEqual([]);
     expect(data.errors).toEqual([]);
   });
+
+  it("watch --help lists --wait-for-transcripts", () => {
+    const out = runCli(["watch", "--help"], process.cwd());
+    expect(out).toContain("wait-for-transcripts");
+  });
+
+  it("vault list and inject preview respect --dir (nested subcommands, Commander v14)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "am-cli-"));
+    runCli(["--dir", dir, "vault", "add", "x", "decisions", "--content", "We decided to use tests"], process.cwd());
+    const listOut = runCli(["--dir", dir, "--json", "vault", "list", "x", "decisions"], process.cwd());
+    const list = JSON.parse(listOut) as { entries: Array<{ id: string }> };
+    expect(list.entries.length).toBe(1);
+
+    const injectOut = runCli(["--dir", dir, "inject", "preview", "x", "decisions about tests"], process.cwd());
+    expect(injectOut).toContain("MEMORY CONTEXT");
+  });
 });

@@ -1,7 +1,7 @@
 # Memory System Guide
 
 **For:** Users of AI agent dashboards with @inosx/agent-memory  
-**Updated:** 2026-04-07  
+**Updated:** 2026-04-07 (npm postinstall: `.vscode` folder-open `process` + `watch --wait-for-transcripts`)  
 **Version:** 3.0
 
 > **Using the npm package only (no dashboard)?** See the [User Guide](user-guide.md) for installation, CLI, and library usage in standalone projects.
@@ -34,9 +34,9 @@ In addition to each agent's individual vault, there is a shared `_project.md` fi
 
 ## How is memory populated?
 
-There are three ways:
+There are four ways:
 
-### 1. Automatically when closing a session
+### 1. Automatically when closing a session (dashboard)
 
 When you close an agent's chat window (the **×** button on the bubble or drawer), the system:
 
@@ -46,7 +46,27 @@ When you close an agent's chat window (the **×** button on the bubble or drawer
 
 The next time you open a session with that agent, it will receive this handoff as context.
 
-### 2. Manually through the Memory Vault
+### 2. Automatically via transcript watcher (Cursor / VS Code)
+
+If you use **Cursor** or **VS Code**, the default **`npm install @inosx/agent-memory`** configures **folder-open tasks** (see root README and [User Guide](user-guide.md)): **`process`** runs once, **`watch --wait-for-transcripts`** stays running. Alternatively you can start the watcher yourself:
+
+```bash
+# Start the real-time watcher (runs as a daemon)
+agent-memory watch
+
+# Or process all past transcripts in one shot
+agent-memory process
+```
+
+The watcher:
+- Monitors Cursor's `.jsonl` transcript files at `~/.cursor/projects/<slug>/agent-transcripts/`
+- Extracts decisions and lessons using the same PT+EN heuristic patterns as compaction
+- Generates handoffs automatically when a session goes idle (3 minutes without activity)
+- Saves everything to the vault without any user intervention
+
+This is the **recommended approach for Cursor users** — it captures insights from every conversation without depending on the × button.
+
+### 3. Manually through the Memory Vault
 
 Click the **🧠** icon in the top bar to open the Memory Vault. From there you can:
 - View all memories for each agent by category
@@ -54,7 +74,7 @@ Click the **🧠** icon in the top bar to open the Memory Vault. From there you 
 - Edit or delete existing entries
 - Search by free text (BM25 search)
 
-### 3. Via script for historical conversations
+### 4. Via script for historical conversations
 
 To import decisions and lessons from old conversations that haven't been processed yet:
 
@@ -88,12 +108,19 @@ Open chat
     │       │
     │       └─ sendBeacon saves checkpoint + conversation (handoff is NOT generated)
     │
+    ├─ [watcher running (Cursor)]
+    │       │
+    │       ├─ Transcript lines processed in real-time (decisions + lessons extracted)
+    │       └─ After 3 min idle → handoff generated automatically
+    │
     └─ [next session]
             │
             └─ Automatic context injection (see section below)
 ```
 
 **The automatic checkpoint every 30s** protects the conversation content. Even if the window closes unexpectedly, the history is preserved on disk for up to 7 days.
+
+**Cursor users:** if `agent-memory watch` is running, decisions, lessons, and handoffs are captured automatically from every conversation — even if the session closes unexpectedly. This is more reliable than depending solely on the × button.
 
 ### Hosts without the dashboard timer
 
@@ -104,6 +131,16 @@ agent-memory sync-checkpoints [--dir .memory] [--json] [--force]
 ```
 
 Equivalent in code: `syncCheckpointsFromConversations(createMemory({ dir }), options)` (exported from `@inosx/agent-memory`). Details: [memory-system.md](memory-system.md) and [user-guide.md](user-guide.md).
+
+### Cursor users: transcript watcher
+
+For **Cursor** (and VS Code), the default **`npm install @inosx/agent-memory`** merges **folder-open tasks** into `.vscode/tasks.json` so **`agent-memory process`** and **`agent-memory watch --wait-for-transcripts`** start when you open the workspace (allow automatic tasks if the editor prompts). You can still run manually:
+
+```bash
+agent-memory watch
+```
+
+This monitors Cursor's native transcript files and captures everything automatically. See [memory-system.md — Section 18](memory-system.md#18-transcript-automation) for architecture details.
 
 ---
 
@@ -327,9 +364,9 @@ Each vault entry can have **tags** associated with it. Tags:
 
 Project context is injected in all sessions of all agents. A long file consumes token budget that could be used for more relevant decisions and lessons. Goal: **under 500 words**.
 
-### 2. Close sessions via the × button
+### 2. Close sessions via the × button (or use the watcher)
 
-Closing via the × button is the only path that generates automatic handoffs. Closing the tab or browser only saves the checkpoint via `sendBeacon` — no handoff.
+Closing via the × button generates automatic handoffs in the dashboard. Closing the tab or browser only saves the checkpoint via `sendBeacon` — no handoff. **Exception:** if `agent-memory watch` is running, handoffs are generated automatically for idle sessions regardless of how you close them.
 
 ### 3. Review handoffs from important sessions
 
@@ -357,8 +394,14 @@ The system runs automatic compaction every 10 minutes when the dashboard is open
 To force it manually:
 
 ```bash
+agent-memory compact
+# or via HTTP if the dashboard is running:
 curl -X POST http://localhost:3000/api/memory/compact
 ```
+
+### 8. Use the transcript watcher for Cursor / VS Code
+
+Prefer the **automatic folder-open tasks** after install, or run `agent-memory watch` / `watch --wait-for-transcripts` manually. That captures conversations continuously and is more reliable than manual saves or depending only on the dashboard × button.
 
 ### 8. Monitor active agent vaults
 
@@ -469,11 +512,13 @@ Compaction can only be executed from `localhost`. Requests from external IPs rec
 
 ### The automatic handoff wasn't generated
 
-**Probable cause:** The session was closed unexpectedly (not via the × button).
+**Probable cause:** The session was closed unexpectedly (not via the × button), and the transcript watcher wasn't running.
 
 **What to do:**
-- Always close sessions via the × button
-- If the session already passed: create a handoff manually in the vault summarizing what was discussed
+- Always close sessions via the × button, **or**
+- Run `agent-memory watch` in the background (recommended for Cursor users — it generates handoffs for idle sessions automatically)
+- To process past sessions retroactively: `agent-memory process`
+- If the session already passed and you don't want to process transcripts: create a handoff manually in the vault summarizing what was discussed
 
 ### The agent is receiving outdated information
 
@@ -491,7 +536,7 @@ Compaction can only be executed from `localhost`. Requests from external IPs rec
 
 **What to do:**
 1. Check if the dashboard has been open in recent days (automatic compaction requires an active dashboard)
-2. Force a compaction: `curl -X POST http://localhost:3000/api/memory/compact`
+2. Force a compaction: `agent-memory compact` (or `curl -X POST http://localhost:3000/api/memory/compact`)
 3. Or review manually: delete old handoffs, consolidate similar lessons
 4. Completed tasks (`[x]`) can be deleted — they're no longer injected, but clutter the view
 
@@ -517,8 +562,8 @@ Compaction can only be executed from `localhost`. Requests from external IPs rec
 ## What is NOT stored automatically
 
 - **Files and images** sent in the conversation
-- **Sessions closed without the × button** — closing the tab or browser saves the checkpoint via `sendBeacon`, but **does not generate a handoff**
-- **Tool call content** — if the agent used a tool, the tool result is not extracted as memory
+- **Sessions closed without the × button** (dashboard only) — closing the tab or browser saves the checkpoint via `sendBeacon`, but **does not generate a handoff**. However, if `agent-memory watch` is running, handoffs **are** generated for idle sessions.
+- **Tool call content** — tool-use blocks in transcripts are skipped by the parser; the tool result text is not extracted as memory
 - **Internal messages** — messages marked as `internal` (system-generated) are not saved in checkpoints nor used for handoffs
 
 ---
@@ -544,7 +589,13 @@ Only the most recent handoff is injected into the context. Previous handoffs rem
 Compaction tries to extract decisions and lessons from removed messages using pattern matching. For truly critical information, register it manually in the vault — it's the most reliable way to ensure the agent remembers.
 
 **What happens when the dashboard stays closed for a long time?**
-Checkpoints expire after 7 days. Vault memories (decisions, lessons, handoffs, tasks, projects) persist indefinitely. Compaction only runs when the dashboard is open — after long periods without use, the first opening may trigger a heavier compaction.
+Checkpoints expire after 7 days. Vault memories (decisions, lessons, handoffs, tasks, projects) persist indefinitely. Compaction only runs when the dashboard is open (or via CLI `agent-memory compact`). After long periods without use, the first opening may trigger a heavier compaction.
+
+**How does transcript automation differ from compaction?**
+Compaction processes `conversations/*.json` files written by the dashboard. Transcript automation processes Cursor's `.jsonl` transcript files. Both use the same PT+EN heuristic patterns for extraction, but they operate on different data sources. You can use both simultaneously.
+
+**Should I run `watch` or `process`?**
+With default postinstall, **both** run when you open the workspace (`process` once per open, `watch` continuous). Manually: use **`watch`** for ongoing monitoring; use **`process`** for a one-shot backlog (CI, or before starting `watch` without folder-open tasks).
 
 **Can I edit `_project.md` directly in a text editor?**
 Yes. The file is at `.memory/_project.md` and is plain text markdown. Changes are reflected immediately in the next session of any agent.

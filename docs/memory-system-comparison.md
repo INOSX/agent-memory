@@ -253,6 +253,21 @@ AITeam's LLM extraction has a limit of 3 items per category. For long or complex
 
 ---
 
+## 11. @inosx/agent-memory (npm package — this repo)
+
+The **standalone npm library** extracted from the AITeam memory design is a **local, file-first** system: Markdown vault per agent, **BM25** (MiniSearch), **`buildContext` / `buildTextBlock`** for injection, checkpoints, compaction, and **Cursor transcript automation** (`watch`, `process`, heuristic extraction — no LLM required for that path).
+
+| Topic | Behaviour |
+|-------|-----------|
+| **Automatic capture from Cursor** | Optional **`fs.watch`** on `~/.cursor/projects/<slug>/agent-transcripts/*.jsonl`; **`npm install`** can merge **VS Code folder-open tasks** so `process` + `watch --wait-for-transcripts` start without a manual terminal. |
+| **Injection into the model** | Not started by those tasks; the **Cursor rule** asks the agent to run **`inject preview`** (or the host app calls `buildContext`). |
+| **Veto window** | Unlike the AITeam dashboard’s 10-minute **🤖 llm** flow described above, heuristic transcript entries go straight to the vault — review/edit in the **viewer** or Markdown. |
+| **UI** | Optional **`agent-memory viewer`** CLI (built-in HTTP UI), not the full AITeam Memory Vault. |
+
+This section was added **2026-04-07** to sit alongside the earlier product comparison dated **2026-03-17**.
+
+---
+
 ## Sources
 
 - [Memory and new controls for ChatGPT — OpenAI](https://openai.com/index/memory-and-new-controls-for-chatgpt/)

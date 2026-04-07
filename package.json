@@ -1,7 +1,7 @@
 {
   "name": "@inosx/agent-memory",
-  "version": "0.3.2",
-  "description": "File-based memory system for AI agents — vault, search, context injection, session checkpoints, and compaction",
+  "version": "0.4.0",
+  "description": "File-based memory for AI agents — vault, BM25 search, context injection, checkpoints, compaction, Cursor transcript watch/process, postinstall Cursor rules + VS Code folder-open tasks",
   "keywords": [
     "ai",
     "agents",

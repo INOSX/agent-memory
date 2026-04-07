@@ -100,3 +100,24 @@ export {
   type SyncCheckpointsOptions,
   type SyncCheckpointsResult,
 } from "./sync-checkpoints.js";
+
+export {
+  workspaceSlug,
+  findTranscriptsDir,
+  listTranscripts,
+  parseTranscript,
+  type TranscriptInfo,
+  type ParseResult,
+} from "./transcript-parser.js";
+
+export {
+  processTranscripts,
+  type ProcessOptions,
+  type ProcessResult,
+} from "./process-transcripts.js";
+
+export {
+  startWatcher,
+  type WatcherOptions,
+  type WatcherHandle,
+} from "./watcher.js";

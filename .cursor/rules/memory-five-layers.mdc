@@ -1,31 +1,97 @@
 ---
-description: Disciplina das cinco camadas de memória (agent-memory) + sync de checkpoints
+description: Sistema de memória persistente entre sessões — carregamento de contexto + salvamento explícito + watcher automático
 alwaysApply: true
 ---
 
-# Memória agent-memory (L1–L5)
+# agent-memory — Protocolo de Memória
 
-Trabalho neste repositório que toque memória em disco (`.memory/` ou integração com o pacote):
+CLI: `npx agent-memory`. Diretório: `.memory/`. AgentId padrão: `default`.
 
-## L1 — Sessão / checkpoints
+---
 
-- Se existirem ficheiros em `.memory/conversations/*.json` e o contexto for adequado, corre na raiz do projeto (ou com `AGENT_MEMORY_DIR`):  
-  `npx agent-memory sync-checkpoints`  
-  (ou `node dist/cli.js` após build). Usa `--force` só quando quiseres regravar checkpoints apesar do timestamp.
-- Ignora mensagens `internal` no JSON; o CLI alinha conversas → `.vault/checkpoints/`.
+## 1. BOOT — primeira ação de toda sessão
 
-## L2 — Vault
+Carregue o contexto relevante antes de responder:
 
-- Mantém formato de entradas Markdown (`id` em comentário HTML, separadores `---`). Não apagar `id` sem substituição consciente.
+```bash
+npx agent-memory inject preview default "<primeira mensagem do usuário>"
+```
 
-## L3 — Search (BM25)
+Se retornar MEMORY CONTEXT, use como contexto para suas respostas. Se `.memory/` não existir ou retornar vazio, siga normalmente.
 
-- Após edições manuais grandes no vault (fora de `vault append`), considera `agent-memory compact` para reconstruir índice e limites.
+Para ver agentes existentes: `npx agent-memory agents`.
 
-## L4 — Inject
+---
 
-- Alterações a `src/inject.ts` ou à ordem de `buildContext`: atualiza testes e docs que descrevem o bloco injetado.
+## 2. AUTOMAÇÃO — watcher de transcripts
 
-## L5 — Compact
+O sistema possui um watcher que monitora transcripts do Cursor automaticamente. Ele:
+- Extrai decisões e lições das conversas via padrões heurísticos (PT+EN)
+- Gera handoffs automaticamente quando a sessão fica idle (3 min sem atividade)
+- Salva tudo no vault sem intervenção do agente
 
-- Alterações a `src/compact.ts` ou limites em `MemoryConfig`: alinha `src/types.ts` / defaults em `createMemory` e documentação.
+**Ativação automática (recomendado):** ao instalar `@inosx/agent-memory`, o `npm install` adiciona tarefas em `.vscode/tasks.json` que disparam ao **abrir a pasta** no Cursor/VS Code: `agent-memory: process transcript backlog` (uma vez) e `agent-memory: watch transcripts` (com `--wait-for-transcripts` até existir pasta de transcripts). É necessário permitir tarefas automáticas na primeira vez (o postinstall define `task.allowAutomaticTasks` quando ainda não existia).
+
+**Manual:** `npx agent-memory watch` ou `npx agent-memory watch --wait-for-transcripts`. Processar só o histórico: `npx agent-memory process`.
+
+Isso significa que NÃO é necessário salvar decisões e lições manualmente durante a conversa — o watcher cuida disso.
+
+---
+
+## 3. SAVES EXPLÍCITOS — quando o usuário pedir diretamente
+
+Salve no vault SOMENTE quando o usuário pedir explicitamente, usando frases como:
+- "lembra disso", "salva isso", "anota", "registra"
+- "remember this", "save this", "note this"
+
+```bash
+npx agent-memory vault add default <category> -c "<conteúdo>" -t "<tag1>,<tag2>"
+```
+
+Categorias: `decisions`, `lessons`, `handoffs`, `tasks`, `projects`.
+
+Tags são importantes — inclua nomes de tecnologias, domínio e tipo de mudança para o BM25 encontrar depois.
+
+---
+
+## 4. TAREFAS — salvar quando identificar pendências
+
+Salve em `tasks` quando:
+- O usuário pedir algo para depois ("faz isso depois", "lembra de X")
+- Trabalho ficou fora do escopo da sessão atual
+
+```bash
+npx agent-memory vault add default tasks -c "- [ ] Descrição da tarefa"
+```
+
+Quando completar uma tarefa salva, delete-a:
+```bash
+npx agent-memory vault list default tasks --json
+npx agent-memory vault delete default tasks <id> --force
+```
+
+---
+
+## 5. BUSCAR MEMÓRIAS
+
+Se precisar consultar algo que pode já ter sido salvo:
+
+```bash
+npx agent-memory search "termo de busca" --agent default
+```
+
+---
+
+## Referência rápida
+
+| Ação | Comando |
+|------|---------|
+| Carregar contexto | `npx agent-memory inject preview default "<msg>"` |
+| Salvar entrada | `npx agent-memory vault add default <cat> -c "<texto>" -t "<tags>"` |
+| Buscar memória | `npx agent-memory search "<termo>" --agent default` |
+| Listar entradas | `npx agent-memory vault list default <cat>` |
+| Deletar entrada | `npx agent-memory vault delete default <cat> <id> --force` |
+| Iniciar watcher | `npx agent-memory watch` (ou `watch --wait-for-transcripts` se a pasta de transcripts ainda não existir) |
+| Processar transcripts | `npx agent-memory process` |
+| Automático ao abrir pasta | Tarefas VS Code/Cursor após `npm install` — permitir *automatic tasks* no editor |
+| Compactar | `npx agent-memory compact` |

@@ -12,6 +12,9 @@ import { createMemory } from "./index.js";
 import { DEFAULT_CATEGORIES } from "./types.js";
 import { startViewer } from "./viewer.js";
 import { syncCheckpointsFromConversations } from "./sync-checkpoints.js";
+import { processTranscripts } from "./process-transcripts.js";
+import { findTranscriptsDir } from "./transcript-parser.js";
+import { startWatcher } from "./watcher.js";
 import type { AgentMemory } from "./index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,9 +31,23 @@ function getRootCommand(cmd: Command): Command {
   return root;
 }
 
+type CommandWithOpts = Command & {
+  optsWithGlobals?: () => Record<string, unknown>;
+  opts?: () => Record<string, unknown>;
+};
+
+/** Commander v14 passes `{}` as the last `cmd` arg for nested subcommands; use the action's `this` instead. */
 function getGlobalOpts(cmd: Command): { dir: string; json: boolean } {
-  const root = getRootCommand(cmd);
-  const opts = root.opts() as { dir?: string; json?: boolean };
+  const c = cmd as CommandWithOpts;
+  const merged =
+    typeof c.optsWithGlobals === "function"
+      ? c.optsWithGlobals()
+      : typeof c.opts === "function"
+        ? (c.opts() as Record<string, unknown>)
+        : typeof (getRootCommand(cmd) as CommandWithOpts).opts === "function"
+          ? ((getRootCommand(cmd) as CommandWithOpts).opts!() as Record<string, unknown>)
+          : {};
+  const opts = merged as { dir?: string; json?: boolean };
   const fromEnv = process.env.AGENT_MEMORY_DIR;
   const raw = fromEnv ?? opts.dir ?? ".memory";
   return {
@@ -196,7 +213,8 @@ async function main(): Promise<void> {
     .description("List entries in a category")
     .argument("<agentId>", "Agent id")
     .argument("<category>", "Vault category")
-    .action(async (agentId: string, category: string, cmd: Command) => {
+    .action(async function (this: Command, agentId: string, category: string) {
+      const cmd = this;
       try {
         assertCategory(category);
         const mem = createMem(cmd);
@@ -235,7 +253,8 @@ async function main(): Promise<void> {
     .argument("<agentId>", "Agent id")
     .argument("<category>", "Vault category")
     .argument("<id>", "Entry id")
-    .action(async (agentId: string, category: string, id: string, cmd: Command) => {
+    .action(async function (this: Command, agentId: string, category: string, id: string) {
+      const cmd = this;
       try {
         assertCategory(category);
         const mem = createMem(cmd);
@@ -261,7 +280,13 @@ async function main(): Promise<void> {
     .option("-c, --content <text>", "Entry body")
     .option("-f, --file <path>", "Read body from file")
     .option("-t, --tags <list>", "Comma-separated tags (optional)")
-    .action(async (agentId: string, category: string, opts: { content?: string; file?: string; tags?: string }, cmd: Command) => {
+    .action(async function (
+      this: Command,
+      agentId: string,
+      category: string,
+      opts: { content?: string; file?: string; tags?: string },
+    ) {
+      const cmd = this;
       try {
         assertCategory(category);
         const mem = createMem(cmd);
@@ -292,7 +317,14 @@ async function main(): Promise<void> {
     .argument("<id>", "Entry id")
     .option("-c, --content <text>", "New body")
     .option("-f, --file <path>", "Read new body from file")
-    .action(async (agentId: string, category: string, id: string, opts: { content?: string; file?: string }, cmd: Command) => {
+    .action(async function (
+      this: Command,
+      agentId: string,
+      category: string,
+      id: string,
+      opts: { content?: string; file?: string },
+    ) {
+      const cmd = this;
       try {
         assertCategory(category);
         const mem = createMem(cmd);
@@ -316,7 +348,14 @@ async function main(): Promise<void> {
     .argument("<category>", "Vault category")
     .argument("<id>", "Entry id")
     .option("--force", "Skip confirmation (required in non-interactive mode)")
-    .action(async (agentId: string, category: string, id: string, opts: { force?: boolean }, cmd: Command) => {
+    .action(async function (
+      this: Command,
+      agentId: string,
+      category: string,
+      id: string,
+      opts: { force?: boolean },
+    ) {
+      const cmd = this;
       try {
         assertCategory(category);
         const mem = createMem(cmd);
@@ -356,7 +395,8 @@ async function main(): Promise<void> {
     .option("-a, --agent <agentId>", "Limit to one agent")
     .option("-c, --category <name>", "Limit to category")
     .option("-l, --limit <n>", "Max results", "10")
-    .action(async (query: string, opts: { agent?: string; category?: string; limit?: string }, cmd: Command) => {
+    .action(async function (this: Command, query: string, opts: { agent?: string; category?: string; limit?: string }) {
+      const cmd = this;
       try {
         if (opts.category) assertCategory(opts.category);
         const mem = createMem(cmd);
@@ -405,7 +445,8 @@ async function main(): Promise<void> {
     .description("Show the MEMORY CONTEXT block for an agent and command")
     .argument("<agentId>", "Agent id")
     .argument("[command...]", "Command / prompt fragment")
-    .action(async (agentId: string, commandParts: string[], cmd: Command) => {
+    .action(async function (this: Command, agentId: string, commandParts: string[]) {
+      const cmd = this;
       try {
         const mem = createMem(cmd);
         const command = commandParts.join(" ").trim() || "(empty)";
@@ -492,6 +533,99 @@ async function main(): Promise<void> {
           console.log(`Migrated: ${result.migrated.length ? result.migrated.join(", ") : "(none)"}`);
           console.log(`Skipped: ${result.skipped.length ? result.skipped.join(", ") : "(none)"}`);
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        outError(cmd, msg);
+      }
+    });
+
+  program
+    .command("watch")
+    .description("Watch Cursor transcripts and automatically extract insights + handoffs")
+    .option("-a, --agent <id>", "Agent ID for saved entries", "default")
+    .option("--idle-timeout <seconds>", "Seconds of inactivity to consider session ended", "180")
+    .option("--debounce <seconds>", "Seconds to wait after file change before processing", "30")
+    .option("--transcripts-dir <path>", "Custom transcripts directory (bypass auto-discovery)")
+    .option(
+      "--wait-for-transcripts",
+      "Poll until Cursor transcripts directory exists (recommended with automatic folder-open tasks)",
+    )
+    .option("-q, --quiet", "Suppress output")
+    .action(async function (
+      this: Command,
+      opts: {
+        agent?: string;
+        idleTimeout?: string;
+        debounce?: string;
+        transcriptsDir?: string;
+        quiet?: boolean;
+        waitForTranscripts?: boolean;
+      },
+    ) {
+      const cmd = this;
+      try {
+        const mem = createMem(cmd);
+        const quiet = !!opts.quiet;
+        const cwd = process.cwd();
+        if (opts.waitForTranscripts && !opts.transcriptsDir) {
+          const pollSec = 15;
+          while (!findTranscriptsDir(cwd)) {
+            if (!quiet) {
+              console.log(
+                `[agent-memory watch] Waiting for Cursor transcripts directory (poll every ${pollSec}s). Open a chat in this workspace in Cursor.`,
+              );
+            }
+            await new Promise((r) => setTimeout(r, pollSec * 1000));
+          }
+        }
+        const handle = startWatcher(mem, {
+          agentId: opts.agent ?? "default",
+          idleTimeoutSec: Math.max(10, parseInt(opts.idleTimeout ?? "180", 10) || 180),
+          debounceSec: Math.max(1, parseInt(opts.debounce ?? "30", 10) || 30),
+          transcriptsDir: opts.transcriptsDir,
+          workspaceDir: cwd,
+          quiet,
+        });
+
+        const shutdown = () => {
+          handle.stop();
+          process.exit(0);
+        };
+        process.on("SIGINT", shutdown);
+        process.on("SIGTERM", shutdown);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        outError(cmd, msg);
+      }
+    });
+
+  program
+    .command("process")
+    .description("One-shot: process all unprocessed Cursor transcripts (extract insights + handoffs)")
+    .option("-a, --agent <id>", "Agent ID for saved entries", "default")
+    .option("--threshold <minutes>", "Minutes of inactivity to consider session ended", "5")
+    .option("--transcripts-dir <path>", "Custom transcripts directory (bypass auto-discovery)")
+    .action(async function (this: Command, opts: { agent?: string; threshold?: string; transcriptsDir?: string }) {
+      const cmd = this;
+      try {
+        const mem = createMem(cmd);
+        const result = await processTranscripts(mem, {
+          agentId: opts.agent ?? "default",
+          idleThresholdMinutes: Math.max(1, parseInt(opts.threshold ?? "5", 10) || 5),
+          transcriptsDir: opts.transcriptsDir,
+        });
+        if (getGlobalOpts(cmd).json) {
+          console.log(JSON.stringify(result));
+        } else {
+          console.log(`Transcripts processed: ${result.transcriptsProcessed}`);
+          console.log(`Decisions extracted: ${result.decisionsExtracted}`);
+          console.log(`Lessons extracted: ${result.lessonsExtracted}`);
+          console.log(`Handoffs generated: ${result.handoffsGenerated}`);
+          if (result.errors.length > 0) {
+            for (const e of result.errors) console.error(`  ${e.transcriptId}: ${e.error}`);
+          }
+        }
+        if (result.errors.length > 0) process.exit(1);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         outError(cmd, msg);

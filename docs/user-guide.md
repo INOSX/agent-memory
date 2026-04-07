@@ -1,7 +1,7 @@
 # User Guide — @inosx/agent-memory
 
 **Audience:** Developers integrating file-based agent memory into Node.js applications, or operators managing memory via the CLI.  
-**Updated:** 2026-04-07
+**Updated:** 2026-04-07 (postinstall VS Code folder-open tasks, `watch --wait-for-transcripts`)
 
 ---
 
@@ -15,6 +15,7 @@
 - **Session checkpoints** — Optional save/recover of recent messages with expiry.
 - **Checkpoint sync** — Align `.vault/checkpoints/` from `conversations/*.json` via CLI or `syncCheckpointsFromConversations()` when you do not rely on a dashboard timer.
 - **Compaction** — Maintenance: trim conversations, cap vault size, rebuild search index, migrate legacy layouts.
+- **Transcript automation** — Automatically process Cursor agent transcripts: extract decisions/lessons and generate handoffs via `watch` (daemon) or `process` (one-shot).
 - **CLI** — The `agent-memory` command for reading, editing, and scripting without writing code.
 
 No database is required. Everything lives on disk.
@@ -34,7 +35,9 @@ The package also installs a command-line tool named `agent-memory`. You can run 
 - `npx agent-memory --help` (from a project that depends on the package), or  
 - `npx @inosx/agent-memory --help` if you prefer invoking the package name directly.
 
-**Cursor:** `npm install` runs a **postinstall** script that copies the default rule `memory-five-layers.mdc` into **`.cursor/rules/`** in your project (quiet unless `AGENT_MEMORY_VERBOSE=1`). To skip: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. See the root [README](../README.md#cursor-rule-automatic).
+**Cursor / VS Code:** `npm install` runs **postinstall** that (1) copies all `.mdc` rules into **`.cursor/rules/`**, (2) merges **`.vscode/tasks.json`** so **`process`** and **`watch --wait-for-transcripts`** run when you **open the workspace** (folder-open tasks), and (3) sets **`task.allowAutomaticTasks`** in **`.vscode/settings.json`** if it was unset. Skip rules only: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. Skip task merge only: `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`. Verbose: `AGENT_MEMORY_VERBOSE=1`. See the root [README](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks).
+
+**Cursor transcript automation:** with the default install, opening the project in Cursor/VS Code starts the watcher automatically (after you allow automatic tasks if the editor asks). You can still run `agent-memory watch` or `agent-memory process` manually. See [Transcript automation](#transcript-automation-cursor) below.
 
 ---
 
@@ -118,6 +121,20 @@ import { createMemory, syncCheckpointsFromConversations } from "@inosx/agent-mem
 const mem = createMemory({ dir: ".memory" });
 const { synced, skipped, errors } = await syncCheckpointsFromConversations(mem);
 // Optional: { force: true } to overwrite even when checkpoint looks newer
+```
+
+**Transcript automation** (process Cursor transcripts programmatically):
+
+```typescript
+import { processTranscripts, startWatcher } from "@inosx/agent-memory";
+
+// One-shot: process all unprocessed transcripts
+const result = await processTranscripts(mem, { agentId: "default" });
+// → { processed, decisions, lessons, handoffs }
+
+// Or watch in real-time
+const handle = startWatcher(mem, { agentId: "default", debounceSeconds: 30 });
+// handle.stop() when done
 ```
 
 **Migration** from older flat `AgentName.md` files in the memory root:
@@ -211,6 +228,36 @@ agent-memory --json sync-checkpoints       # machine-readable { synced, skipped,
 
 See [memory-system.md](memory-system.md) (Layer 1) for timestamp rules and the programmatic API.
 
+### Transcript automation (Cursor)
+
+```bash
+# Start the real-time watcher (runs as a persistent daemon)
+agent-memory watch
+
+# Wait until Cursor has created the transcripts directory (used by automatic folder-open tasks)
+agent-memory watch --wait-for-transcripts
+
+# Custom options
+agent-memory watch --agent my-agent --idle-timeout 300 --debounce 60
+
+# Quiet mode (suppress output)
+agent-memory watch -q
+
+# One-shot: process all past transcripts
+agent-memory process
+
+# Custom agent and idle threshold
+agent-memory process --agent my-agent --threshold 10
+
+# Custom transcripts directory (bypass auto-discovery)
+agent-memory watch --transcripts-dir /path/to/transcripts
+```
+
+The watcher monitors `~/.cursor/projects/<slug>/agent-transcripts/` for changes and automatically:
+- Extracts decisions and lessons using PT+EN heuristic patterns
+- Generates handoffs when a session goes idle (default: 3 min without activity)
+- Saves insights to the vault with `autoextract`/`autohandoff` and `transcript` tags
+
 ### Maintenance
 
 ```bash
@@ -228,6 +275,22 @@ agent-memory migrate    # flat .md → vault directories
 agent-memory vault add dev tasks --content "- [ ] Add integration tests for vault"
 agent-memory vault add dev decisions --content "Chose Vitest — align with repo stack"
 ```
+
+### Cursor: auto-capture everything (default vs manual)
+
+**Default:** after install, **open the project folder** in Cursor or VS Code and **allow automatic tasks** if prompted. Postinstall merges tasks that run **`process`** once and **`watch --wait-for-transcripts`** in the background — no separate terminal needed.
+
+**Manual (same behaviour as the tasks):**
+
+```bash
+# One-shot backlog, then long-running watcher (optional if folder-open tasks are enabled)
+agent-memory process && agent-memory watch --wait-for-transcripts
+
+# Or only the watcher (fails immediately if transcripts dir does not exist yet)
+agent-memory watch
+```
+
+Every Cursor conversation can have decisions and lessons extracted automatically, and a handoff generated when you stop chatting for ~3 minutes (idle timeout).
 
 ### Debug: why does the agent “forget” something?
 
@@ -249,6 +312,7 @@ Non-interactive deletes **require** `--force`.
 ## Git and backups
 
 - Version **curated** vault Markdown and `_project.md` if the team should share memory.
+- **`.vscode/tasks.json`** (after postinstall) defines folder-open automation — commit it if the team should share the same defaults; remove or edit tasks if a project should not auto-start the watcher.
 - Ignore high-churn paths if you do not want them in Git: for example `conversations/`, `.vault/checkpoints/`, and regenerated index files — match your security and collaboration needs.
 
 ---
@@ -270,6 +334,10 @@ Non-interactive deletes **require** `--force`.
 | Injection feels empty | Token budget exceeded — see technical doc; reduce `_project.md` size or number of tasks. |
 | `vault edit` / `add` errors | Category spelling; agent folder must exist (created on first `append`). |
 | `project edit` opens wrong editor | Set `EDITOR` or `VISUAL`. |
+| `watch` says "No transcripts directory found" | Use **`watch --wait-for-transcripts`**, or ensure folder-open tasks are running, or open a Cursor agent chat once so `~/.cursor/projects/<slug>/agent-transcripts/` exists. |
+| `process` finds no transcripts | Same as above; or use `--transcripts-dir` to point to a custom location. |
+| Folder-open tasks never run | In Cursor/VS Code: allow **automatic tasks** for the workspace; confirm **`task.allowAutomaticTasks`** is `"on"` in `.vscode/settings.json`. |
+| Do not want background watcher | Set **`AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`** on install, or delete the `agent-memory:` tasks from `.vscode/tasks.json`. |
 
 ---
 
@@ -277,9 +345,9 @@ Non-interactive deletes **require** `--force`.
 
 | Document | Contents |
 |----------|----------|
-| [README](../README.md) | Install, CLI cheat sheet, API tables, storage layout |
-| This guide | Concepts, CLI workflows, integration, troubleshooting |
-| [memory-system.md](memory-system.md) | Architecture, layers, APIs, constants (technical reference) |
+| [README](../README.md) | Install, **postinstall** (rules + `.vscode` tasks), env vars, CLI cheat sheet, API tables, storage layout |
+| This guide | Concepts, CLI workflows, transcript automation, integration, troubleshooting |
+| [memory-system.md](memory-system.md) | Architecture, layers, APIs, constants, transcript automation (technical reference) |
 | [memory-system-guide.md](memory-system-guide.md) | Deeper guide when memory is embedded in an **AI dashboard** (sessions, UI, compaction timers) |
 | [memory-system-comparison.md](memory-system-comparison.md) | Comparison with other memory products |
 

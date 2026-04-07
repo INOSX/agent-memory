@@ -69,6 +69,8 @@ Em termos simples:
 2. **Durante** o trabalho, a conversa pode ser **guardada** de forma periódica, para recuperação ou continuidade.
 3. **Depois**, ao fechar ou ao fazer manutenção, pode haver **limpeza** e **extração de ideias** para não deixar tudo crescer sem controlo.
 
+Adicionalmente, para utilizadores de **Cursor** ou **VS Code**, ao instalar o pacote o projeto pode ficar com tarefas que **arrancam ao abrir a pasta** (`process` + `watch`), para o observador trabalhar sem comandos manuais. Em alternativa, pode correr-se `agent-memory watch` à mão — lê as conversas em tempo real e extrai decisões, lições e resumos sem fechar a sessão de forma especial.
+
 O utilizador final pode nem ver estes passos — mas é isto que permite que a **próxima** conversa não comece “vazia”.
 
 ---
@@ -107,7 +109,7 @@ Ser honesto aqui evita desilusões e ajuda a vender o valor **real**: continuida
 ## Próximo passo para quem vai implementar
 
 - **Pacote:** [`@inosx/agent-memory`](https://www.npmjs.com/package/@inosx/agent-memory) no npm.  
-- **Documentação técnica:** [README](../README.md), [User Guide](user-guide.md) e [índice de documentação](README.md).
+- **Documentação técnica:** [README](../README.md) (inclui **postinstall**, tarefas ao abrir pasta e variáveis de ambiente), [User Guide](user-guide.md) e [índice](README.md).
 
 Se quiser comparar com outras abordagens de memória no mercado, veja [Memory System Comparison](memory-system-comparison.md) (em inglês, mais detalhado).
 

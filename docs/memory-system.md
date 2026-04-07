@@ -1,7 +1,7 @@
 # Persistent Memory System — @inosx/agent-memory
 
-**Version:** 3.0
-**Updated:** 2026-04-01
+**Version:** 3.3
+**Updated:** 2026-04-07
 **Status:** Implemented and in production
 
 ---
@@ -114,6 +114,8 @@ flowchart TB
 
 **Boundary:** anything that only uses the **library** (`createMemory`) without the dashboard still follows the same disk layout; the “UI” node is replaced by your host (CLI, API route, worker) calling `vault`, `session`, and `inject` explicitly. For Layer 1, hosts that write `conversations/*.json` can call **`agent-memory sync-checkpoints`** or **`syncCheckpointsFromConversations`** instead of a frontend timer.
 
+**Cursor transcript automation:** the package can also read Cursor's native agent transcripts (`.jsonl` files at `~/.cursor/projects/<slug>/agent-transcripts/`) and extract insights automatically via `agent-memory watch` (real-time daemon) or `agent-memory process` (one-shot). See [Section 18: Transcript Automation](#18-transcript-automation).
+
 ---
 
 ## 2. Layer 1: Session Persistence
@@ -178,7 +180,7 @@ For each JSON file in `conversations/`, the command compares the conversation’
 
 Programmatic equivalent: `syncCheckpointsFromConversations(createMemory({ dir }), options)` from the package root export.
 
-**Cursor:** installing `@inosx/agent-memory` runs **postinstall** and copies the same rule into the consumer project’s `.cursor/rules/memory-five-layers.mdc` (`alwaysApply`). Disable with `AGENT_MEMORY_SKIP_CURSOR_RULE=1` if needed.
+**Cursor / VS Code (npm consumer):** installing `@inosx/agent-memory` runs **postinstall** that: (1) copies all `.mdc` rules into **`.cursor/rules/`** (`alwaysApply`); (2) **merges** **`.vscode/tasks.json`** with folder-open tasks **`agent-memory process`** and **`agent-memory watch --wait-for-transcripts`**; (3) sets **`task.allowAutomaticTasks`** to **`"on"`** in **`.vscode/settings.json`** when that key is absent. Skip rules only: **`AGENT_MEMORY_SKIP_CURSOR_RULE=1`**. Skip VS Code merge only: **`AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`**. Verbose: **`AGENT_MEMORY_VERBOSE=1`**. The default rule instructs the agent to run **`inject preview`** at session start; transcript-to-vault extraction is handled by **`watch`** / **`process`** (see [Section 18](#18-transcript-automation)).
 
 ### Session API (`lib/memory/session.ts`)
 
@@ -690,6 +692,49 @@ interface CompactionResult {
   indexRebuilt: boolean;
   legacyFilesCleaned: number;
 }
+
+// --- Transcript automation types ---
+
+interface TranscriptInfo {
+  id: string;           // UUID from filename
+  path: string;         // absolute path to .jsonl
+  lines: number;        // total line count
+  modifiedAt: number;   // file mtime in ms
+}
+
+interface ProcessedTranscriptState {
+  [transcriptId: string]: {
+    lastLine: number;
+    lastProcessedAt: number;
+    handoffGenerated: boolean;
+  };
+}
+
+interface ProcessOptions {
+  agentId?: string;           // default: "default"
+  transcriptsDir?: string;    // override auto-discovery
+  idleThresholdMinutes?: number; // default: 5
+}
+
+interface ProcessResult {
+  transcriptsProcessed: number;
+  decisionsExtracted: number;
+  lessonsExtracted: number;
+  handoffsGenerated: number;
+  errors: Array<{ transcriptId: string; error: string }>;
+}
+
+interface WatcherOptions {
+  agentId?: string;          // default: "default"
+  transcriptsDir?: string;   // override auto-discovery
+  debounceSeconds?: number;  // default: 30
+  idleTimeoutSeconds?: number; // default: 180
+  quiet?: boolean;
+}
+
+interface WatcherHandle {
+  stop(): void;
+}
 ```
 
 ---
@@ -716,16 +761,30 @@ graph TD
     SEARCH -.->|dynamic import buildIndex| COMPACT
     VAULT -.->|dynamic import updateIndex/removeFromIndex| SEARCH
 
+    TYPES --> TPARSER["transcript-parser.ts"]
+    TYPES --> TPROC["process-transcripts.ts"]
+    TYPES --> WATCHER["watcher.ts"]
+    TPARSER --> TPROC
+    TPARSER --> WATCHER
+    TPROC --> WATCHER
+    VAULT -->|appendEntry| TPROC
+    COMPACT -->|extractInsights| TPROC
+
     style TYPES fill:#f9f,stroke:#333
     style VAULT fill:#bbf,stroke:#333
     style SEARCH fill:#bfb,stroke:#333
     style INJECT fill:#fbb,stroke:#333
     style COMPACT fill:#fbf,stroke:#333
+    style TPARSER fill:#ffd,stroke:#333
+    style TPROC fill:#ffd,stroke:#333
+    style WATCHER fill:#ffd,stroke:#333
 ```
 
 **Circular dependencies avoided** via `dynamic import()`:
 - `vault.ts` → `search.ts`: index update after append/delete (try/catch, errors silenced)
 - `compact.ts` → `search.ts`: index rebuild after compaction
+
+**Transcript modules** (`transcript-parser.ts`, `process-transcripts.ts`, `watcher.ts`) depend on `types.ts`, `vault`, and `compact.extractInsights` but nothing depends on them — they are leaf modules.
 
 ---
 
@@ -748,6 +807,7 @@ graph TD
 └── .vault/                             # System internal data
     ├── index.json                      # BM25 index (MiniSearch)
     ├── compact-log.json                # Last compaction log
+    ├── processed-transcripts.json      # Watcher/process state (auto-generated)
     └── checkpoints/                    # Session checkpoints
         ├── bmad-master.json
         └── dev.json
@@ -763,6 +823,7 @@ graph TD
 | `.memory/{agentId}/` | Yes | Structured vault with valuable memories |
 | `.memory/.vault/index.json` | No | Automatically rebuilt |
 | `.memory/.vault/compact-log.json` | No | Operational log, regenerated on each compaction |
+| `.memory/.vault/processed-transcripts.json` | No | Transcript processing state, regenerated automatically |
 | `.memory/.vault/checkpoints/` | No | Volatile session data |
 | `.memory/conversations/` | No | High volume, transient data |
 | `docs/chat-sessions.json` | No | Volatile session IDs |
@@ -801,6 +862,9 @@ The system adopts a **silent resilience** philosophy: subsystem failures do not 
 | Handoff preview | 6 msgs | MainContent.tsx | Messages used to generate handoff |
 | Search fuzzy | 0.2 | search.ts | Fuzzy matching tolerance |
 | Search limit default | 10 | search.ts | Results per search |
+| Watcher debounce | 30s | watcher.ts | Wait after file change before processing |
+| Watcher idle timeout | 180s (3 min) | watcher.ts | Inactivity before generating handoff |
+| Process idle threshold | 5 min | process-transcripts.ts | Session considered idle for handoff |
 
 ---
 
@@ -823,8 +887,155 @@ node scripts/import-conversations.mjs
 | Phase | Feature | Priority | Status |
 |-------|---------|----------|--------|
 | v3.1 | Heuristic insight extraction on session close and compaction | High | **Implemented** |
-| v3.2 | LLM-based extraction (complementing heuristics) | Medium | Pending |
-| v3.3 | Semantic search with embeddings (beyond BM25) | Medium | Pending |
-| v3.4 | Knowledge graph — wiki-links between agent memories | Low | Pending |
-| v3.5 | Context profiles — adjust injection by task type | Low | Pending |
+| v3.2 | Cursor transcript automation (watcher + one-shot processor) | High | **Implemented** |
+| v3.3 | Postinstall: merge `.vscode/tasks.json` + `watch --wait-for-transcripts` for folder-open automation | High | **Implemented** |
+| v3.4 | LLM-based extraction (complementing heuristics) | Medium | Pending |
+| v3.5 | Semantic search with embeddings (beyond BM25) | Medium | Pending |
+| v3.6 | Knowledge graph — wiki-links between agent memories | Low | Pending |
+| v3.7 | Context profiles — adjust injection by task type | Low | Pending |
 | v4.0 | Obsidian vault synchronization | Low | Pending |
+
+---
+
+## 18. Transcript Automation
+
+The transcript automation system enables the memory framework to learn from Cursor agent conversations without any manual intervention. It reads Cursor's native `.jsonl` transcript files and automatically populates the vault.
+
+### Default activation (postinstall + editor)
+
+When the package is installed as a **dependency** (not when developing this repo), **postinstall** adds or merges VS Code/Cursor **tasks** so that opening the **workspace folder** runs:
+
+| Task label | Command | Role |
+|------------|---------|------|
+| `agent-memory: process transcript backlog` | `npx agent-memory process` | Catches up unprocessed transcript lines (one-shot per open). |
+| `agent-memory: watch transcripts` | `npx agent-memory watch --wait-for-transcripts` | Long-lived watcher; **`--wait-for-transcripts`** polls every 15s until `~/.cursor/projects/<slug>/agent-transcripts/` exists. |
+
+The editor may prompt once to **allow automatic tasks**. **Context injection** (`inject preview` / `buildContext`) is **not** started by these tasks — it remains driven by the **Cursor rule** (agent runs CLI) or by the host application.
+
+### Cursor transcript location
+
+Cursor stores agent transcripts at:
+
+```
+~/.cursor/projects/<workspace-slug>/agent-transcripts/<uuid>/<uuid>.jsonl
+```
+
+The **workspace slug** is derived from the absolute path of the project directory: all `/` are replaced with `-`, and a leading `-` is removed. For example, `/Users/mario/my-project` becomes `Users-mario-my-project`.
+
+Each `.jsonl` file contains one JSON object per line. Lines with `"type": 1` are user messages; lines with `"type": 2` are assistant messages. Tool-use blocks and system messages are skipped by the parser.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    CURSOR["Cursor IDE"] -->|writes .jsonl| TDIR["~/.cursor/projects/<slug>/\nagent-transcripts/"]
+    TDIR --> PARSER["transcript-parser.ts\nparseTranscript()"]
+    PARSER --> PROC["process-transcripts.ts\nprocessTranscripts()"]
+    PARSER --> WATCH["watcher.ts\nstartWatcher()"]
+    PROC -->|decisions, lessons| VAULT["Memory Vault\n(.memory/{agentId}/)"]
+    PROC -->|handoff for idle sessions| VAULT
+    WATCH -->|real-time processing| PROC
+    WATCH -->|idle timeout → handoff| VAULT
+```
+
+### Transcript parser (`transcript-parser.ts`)
+
+| Function | Description |
+|----------|-------------|
+| `workspaceSlug(path)` | Derive the Cursor project slug from an absolute workspace path |
+| `findTranscriptsDir(workspaceDir)` | Locate the `agent-transcripts` directory for a workspace |
+| `listTranscripts(dir)` | List all transcript sessions with line counts and mtimes |
+| `parseTranscript(file, fromLine?)` | Parse JSONL into `ConversationMessage[]`, supports incremental reading |
+
+The parser maps Cursor's `type: 1` / `type: 2` to `role: "user"` / `role: "agent"`, strips `<user_query>` wrappers from user messages, and skips `tool_use` blocks in assistant responses.
+
+### One-shot processor (`process-transcripts.ts`)
+
+```bash
+agent-memory process [--agent <id>] [--threshold <minutes>] [--transcripts-dir <path>]
+```
+
+Processes all unprocessed transcript lines in a single pass:
+
+1. Discovers transcripts via `findTranscriptsDir` (or uses `--transcripts-dir`)
+2. Loads state from `.memory/.vault/processed-transcripts.json`
+3. For each transcript with new lines:
+   - Parses incrementally from `lastLine`
+   - Extracts decisions and lessons using `defaultInsightExtractor` (same PT+EN heuristic patterns as compaction)
+   - Saves insights to the vault with `autoextract` and `transcript` tags
+4. For idle sessions (file not modified within `--threshold` minutes, default 5):
+   - Generates a handoff from the last 6 messages with `autohandoff` and `transcript` tags
+5. Persists updated state
+
+Programmatic:
+
+```typescript
+import { processTranscripts } from "@inosx/agent-memory";
+const result = await processTranscripts(mem, { agentId: "default" });
+// → { transcriptsProcessed, decisionsExtracted, lessonsExtracted, handoffsGenerated, errors }
+```
+
+### Real-time watcher (`watcher.ts`)
+
+```bash
+agent-memory watch [--agent <id>] [--idle-timeout <seconds>] [--debounce <seconds>] [--wait-for-transcripts] [-q]
+```
+
+The **`--wait-for-transcripts`** flag polls every 15 seconds until `findTranscriptsDir(workspace)` succeeds, then starts the watcher. It is intended for **automatic workspace-open tasks** (see `postinstall` merging `.vscode/tasks.json` in the package README) so the task does not exit with an error before the user has opened any Cursor chat in the project.
+
+Runs as a persistent daemon that monitors Cursor transcripts in real-time:
+
+1. Uses `fs.watch` with recursive watching on macOS; falls back to per-file polling on Linux
+2. **Debounce** (default 30s): after a file change event, waits before processing to allow multiple writes to settle
+3. **Idle timeout** (default 180s / 3 min): when no new writes arrive for a session, generates a handoff and marks the session complete
+4. Extracts decisions and lessons from new lines as they arrive
+5. State is persisted to `.memory/.vault/processed-transcripts.json` (same format as one-shot processor)
+
+Programmatic:
+
+```typescript
+import { startWatcher } from "@inosx/agent-memory";
+const handle = startWatcher(mem, {
+  agentId: "default",
+  debounceSeconds: 30,
+  idleTimeoutSeconds: 180,
+});
+// Later:
+handle.stop();
+```
+
+### State file format
+
+`.memory/.vault/processed-transcripts.json`:
+
+```json
+{
+  "<transcript-uuid>": {
+    "lastLine": 42,
+    "lastProcessedAt": 1712345678000,
+    "handoffGenerated": false
+  }
+}
+```
+
+### Tags used by transcript automation
+
+| Tag | Meaning |
+|-----|---------|
+| `autoextract` | Decision or lesson extracted by heuristic from transcript text |
+| `autohandoff` | Handoff generated when session went idle |
+| `transcript` | Entry originated from Cursor transcript processing |
+
+Tags are hyphen-free to be compatible with the vault's tag parser (`/#(\w+)/g`).
+
+### Error handling
+
+The transcript automation follows the same **silent resilience** philosophy as the rest of the system:
+
+| Scenario | Behavior |
+|----------|----------|
+| Transcript directory not found | Logged warning, exits gracefully |
+| Malformed JSON line in transcript | Skipped, processing continues |
+| Vault write failure | Error logged, processing continues with other transcripts |
+| `fs.watch` not available (rare) | Falls back to polling |
+| State file corrupted | Resets to empty state, reprocesses all transcripts |

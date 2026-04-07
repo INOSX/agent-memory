@@ -117,3 +117,9 @@ Objetivo: qualquer sessão Cursor neste projeto que toque memória segue a **mes
 - Docs: [`docs/memory-system.md`](../../docs/memory-system.md), [`docs/memory-system-guide.md`](../../docs/memory-system-guide.md) — secção “Cursor: regras + CLI” e limitações vs timer do dashboard.
 
 **Implementado:** `src/sync-checkpoints.ts`, CLI `sync-checkpoints`, export no `index.ts`, testes em `tests/sync-checkpoints.test.ts` + CLI, `.cursor/rules/memory-five-layers.mdc`, README e `docs/memory-system.md`.
+
+---
+
+## Evolução (2026): transcripts + tarefas ao abrir pasta
+
+Além de **regras + CLI** para checkpoints, o pacote ganhou **automação de transcripts** (`agent-memory watch` / `process`) e **postinstall** que funde **`.vscode/tasks.json`** com tarefas **`runOn: folderOpen`** (`process` + `watch --wait-for-transcripts`). Isto cobre persistência **Cursor → vault** sem agendador do SO; continua **fora de escopo** replicar o timer ~30s do dashboard só com regras — o **inject** segue dependente de turno do agente ou do host que chama `buildContext`. Ver README do pacote e `docs/memory-system.md` secção 18.

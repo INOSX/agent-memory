@@ -13,10 +13,11 @@ Built and battle-tested inside [AITEAM-X](https://github.com/INOSX/AITeam), extr
 - **Context injection** — Assemble relevant memory into prompts with automatic token budget trimming
 - **Session checkpoints** — Save and recover agent sessions with automatic expiry
 - **Compaction** — Extract insights from conversations, trim old messages, cap vault entries
+- **Transcript automation** — Automatically process Cursor agent transcripts: extract decisions/lessons and generate handoffs without manual intervention
 - **Migration** — One-way migration from flat markdown to structured vault format
-- **CLI** — `agent-memory` command to list agents, manage vault entries, search, edit project context, preview injection, **sync checkpoints from conversation files**, run compaction, and migrate
+- **CLI** — `agent-memory` command to list agents, manage vault entries, search, edit project context, preview injection, **sync checkpoints from conversation files**, **watch/process Cursor transcripts**, run compaction, and migrate
 - **Viewer** — Built-in standalone web dashboard to browse agents, vault entries, search, and run compaction — zero extra dependencies
-- **Cursor** — Default project rule (five memory layers + `sync-checkpoints`) installed via `postinstall` into `.cursor/rules/`
+- **Cursor / VS Code** — `postinstall` installs rules into `.cursor/rules/` and merges **folder-open tasks** (transcript `process` + `watch`) into `.vscode/tasks.json`
 
 ## Install
 
@@ -26,14 +27,34 @@ npm install @inosx/agent-memory
 
 The package exposes a `bin` named `agent-memory` (also available via `npx @inosx/agent-memory` after install).
 
-### Cursor rule (automatic)
+### Postinstall automation (Cursor rules and VS Code tasks)
 
-On `npm install`, a **lifecycle script** copies `memory-five-layers.mdc` into your project’s **`.cursor/rules/`** (creates folders if needed). No extra steps in normal setups.
+On `npm install`, a **lifecycle script**:
 
-- **Disable:** `AGENT_MEMORY_SKIP_CURSOR_RULE=1 npm install` (or set in `.npmrc` / CI env).
-- **Silent by default** — set `AGENT_MEMORY_VERBOSE=1` to print the destination path.
-- **Skipped** when: `CI=true`, global npm install, or while developing this repository (not installed from `node_modules`).
+1. Copies every `.mdc` from the package into your project’s **`.cursor/rules/`** (creates folders if needed).
+2. **Merges** VS Code/Cursor **`.vscode/tasks.json`** so that when you **open the workspace folder**, two tasks run automatically:
+   - **`agent-memory: process transcript backlog`** — one-shot `npx agent-memory process`
+   - **`agent-memory: watch transcripts`** — `npx agent-memory watch --wait-for-transcripts` (polls until Cursor’s transcript folder exists, then keeps running)
+3. If `.vscode/settings.json` has no `task.allowAutomaticTasks`, it sets **`"task.allowAutomaticTasks": "on"`** so folder-open tasks are allowed (you may still see a one-time trust prompt in the editor).
+
+No extra steps in normal setups: install the package, open the project in Cursor/VS Code, accept automatic tasks if prompted.
+
+- **Disable rules only:** `AGENT_MEMORY_SKIP_CURSOR_RULE=1 npm install`
+- **Disable VS Code task merge only:** `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1 npm install`
+- **Silent by default** — set `AGENT_MEMORY_VERBOSE=1` to print paths.
+- **Skipped entirely** when: `CI=true`, global npm install, or while developing this repository (not installed from `node_modules`).
 - **Publishing:** run `npm run sync:cursor-rule` after editing [`.cursor/rules/memory-five-layers.mdc`](.cursor/rules/memory-five-layers.mdc) so [`cursor-rules/`](cursor-rules/) matches before release (`prepublishOnly` runs this automatically).
+
+**Environment variables (reference)**
+
+| Variable | When | Effect |
+|----------|------|--------|
+| `AGENT_MEMORY_DIR` | Runtime (CLI / tasks) | Overrides `--dir` / default `.memory` root. |
+| `AGENT_MEMORY_SKIP_CURSOR_RULE=1` | `npm install` | Do not copy `.mdc` files into `.cursor/rules/`. |
+| `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1` | `npm install` | Do not merge `.vscode/tasks.json` or touch `task.allowAutomaticTasks`. |
+| `AGENT_MEMORY_VERBOSE=1` | `npm install` | Print postinstall paths and counts. |
+
+This repository includes **`.vscode/tasks.json`** and **`.vscode/settings.json`** so contributors get the same folder-open behaviour without relying on postinstall inside the package source tree.
 
 ## CLI
 
@@ -60,6 +81,8 @@ Global options (place before the subcommand, e.g. `agent-memory --dir ./.memory 
 | `search <query>` | BM25 search (`--agent`, `--category`, `--limit`) |
 | `inject preview <agentId> [command...]` | Print the same memory block as `buildTextBlock(buildContext(...))` |
 | `sync-checkpoints` | Copy `conversations/*.json` → `.vault/checkpoints/` when newer (optional `--force`) |
+| `watch` | Watch Cursor transcripts in real-time; auto-extract insights and generate handoffs (`--agent`, `--idle-timeout`, `--debounce`, `--wait-for-transcripts`, `--quiet`) |
+| `process` | One-shot: process all unprocessed Cursor transcripts (`--agent`, `--threshold`) |
 | `compact` | Run full compaction (checkpoints, conversations, vault cap, index rebuild) |
 | `migrate` | Migrate flat `*.md` per agent into vault layout |
 | `viewer` | Launch the standalone web dashboard (`--port`, `--no-open`) |
@@ -83,6 +106,15 @@ agent-memory inject preview bmad-master "fix the login flow"
 
 # Align checkpoints with conversation JSON (e.g. Cursor / scripts; no dashboard required)
 agent-memory sync-checkpoints
+
+# Watch Cursor transcripts — auto-extract decisions/lessons and generate handoffs
+agent-memory watch
+
+# Wait until Cursor has created the transcripts folder (same as default folder-open task)
+agent-memory watch --wait-for-transcripts
+
+# One-shot: process all Cursor transcripts from past sessions
+agent-memory process
 
 # Maintenance
 agent-memory compact
@@ -120,6 +152,15 @@ const checkpoint = await mem.session.recover("agent-1");
 
 // Run maintenance (extract insights, trim conversations, cap entries)
 const result = await mem.compact.run();
+
+// Process Cursor transcripts (extract decisions/lessons, generate handoffs)
+import { processTranscripts } from "@inosx/agent-memory";
+const pr = await processTranscripts(mem, { agentId: "default" });
+
+// Or watch transcripts in real-time
+import { startWatcher } from "@inosx/agent-memory";
+const handle = startWatcher(mem, { agentId: "default" });
+// handle.stop() to terminate
 ```
 
 ## Configuration
@@ -202,6 +243,18 @@ The search index auto-syncs with vault operations — manual index management is
 
 Same behaviour as CLI `sync-checkpoints`.
 
+### Transcript automation
+
+| Export | Description |
+|--------|-------------|
+| `parseTranscript(filePath, fromLine?)` | Parse a Cursor `.jsonl` transcript into `ConversationMessage[]`. Supports incremental reading. |
+| `findTranscriptsDir(workspaceDir)` | Discover the Cursor transcripts directory for a workspace (`~/.cursor/projects/<slug>/agent-transcripts/`). |
+| `listTranscripts(transcriptsDir)` | List all transcript sessions with line counts and modification times. |
+| `processTranscripts(mem, options?)` | One-shot: process all unprocessed transcripts — extract decisions/lessons, generate handoffs for idle sessions. |
+| `startWatcher(mem, options?)` | Start a real-time file watcher on Cursor transcripts. Returns a `WatcherHandle` with `stop()`. |
+
+The watcher monitors `~/.cursor/projects/<slug>/agent-transcripts/` using `fs.watch` (with polling fallback). It debounces file changes, extracts insights via the same PT+EN heuristic patterns used by compaction, and generates handoffs when a session goes idle. State is persisted in `.memory/.vault/processed-transcripts.json`.
+
 ### `mem.inject`
 
 | Method | Description |
@@ -249,9 +302,10 @@ Memory is stored as plain markdown files:
 │   └── agent-1.json             # Conversation history
 └── .vault/
     ├── checkpoints/
-    │   └── agent-1.json         # Session checkpoint
-    ├── index.json               # Search index (auto-generated)
-    └── compact-log.json         # Last compaction result
+    │   └── agent-1.json             # Session checkpoint
+    ├── index.json                   # Search index (auto-generated)
+    ├── compact-log.json             # Last compaction result
+    └── processed-transcripts.json   # Watcher/process state (auto-generated)
 ```
 
 Each vault entry in the markdown files follows this format:
@@ -293,11 +347,11 @@ See [Viewer Guide](docs/viewer-guide.md) for details.
 
 ## Documentation
 
-- [**User Guide**](docs/user-guide.md) — Package overview, installation, core concepts, library and **CLI** usage, BMAD-style integration, troubleshooting
-- [Documentation index](docs/README.md) — Table of contents for all docs
-- [Memory System — Technical Reference](docs/memory-system.md) — Architecture overview, 5-layer design, data flow diagrams, API details, error handling patterns, and system constants
+- [**User Guide**](docs/user-guide.md) — Package overview, installation (**postinstall**, `.vscode` tasks), core concepts, library and **CLI**, transcript automation, BMAD-style integration, troubleshooting
+- [Documentation index](docs/README.md) — Table of contents for all docs (technical guides, comparison, viewer, integration prompt)
+- [Memory System — Technical Reference](docs/memory-system.md) — Architecture overview, 5-layer design, data flow diagrams, transcript automation, API details, error handling patterns, and system constants
 - [Memory System — Dashboard Guide](docs/memory-system-guide.md) — Using memory inside an AI agent dashboard (vault UI, session lifecycle, compaction, troubleshooting)
-- [Memory System — Comparison](docs/memory-system-comparison.md) — Detailed comparison with ChatGPT Memory, Claude Memory, OpenClaw Native, and ClawVault
+- [Memory System — Comparison](docs/memory-system-comparison.md) — ChatGPT, Claude, OpenClaw, ClawVault, AITeam, plus **§11 @inosx/agent-memory (npm)**
 - [**Viewer Guide**](docs/viewer-guide.md) — Standalone web dashboard: usage, features, API endpoints, and customization
 
 ## Requirements
