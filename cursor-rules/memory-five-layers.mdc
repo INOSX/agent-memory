@@ -19,6 +19,14 @@ npx agent-memory inject preview default "<primeira mensagem do usuário>"
 
 Se retornar MEMORY CONTEXT, use como contexto para suas respostas. Se `.memory/` não existir ou retornar vazio, siga normalmente.
 
+Se a secção **Project:** no output estiver vazia (sem conteúdo), significa que `.memory/_project.md` não existe. Nesse caso, **crie-o antes de prosseguir**:
+
+1. Analise o repositório: `package.json`, `README.md`, `tsconfig.json`, estrutura de diretórios.
+2. Escreva um `_project.md` conciso (< 300 palavras) com: nome, descrição, stack/runtime, dependências-chave, convenções observadas, goals actuais.
+3. Salve directamente em `.memory/_project.md`.
+
+Isso garante que todas as sessões seguintes recebem contexto do projecto na injecção.
+
 Para ver agentes existentes: `npx agent-memory agents`.
 
 ---
@@ -30,9 +38,9 @@ O sistema possui um watcher que monitora transcripts do Cursor automaticamente. 
 - Gera handoffs automaticamente quando a sessão fica idle (3 min sem atividade)
 - Salva tudo no vault sem intervenção do agente
 
-**Ativação automática (recomendado):** ao instalar `@inosx/agent-memory`, o `npm install` adiciona tarefas em `.vscode/tasks.json` que disparam ao **abrir a pasta** no Cursor/VS Code: `agent-memory: process transcript backlog` (uma vez) e `agent-memory: watch transcripts` (com `--wait-for-transcripts` até existir pasta de transcripts). É necessário permitir tarefas automáticas na primeira vez (o postinstall define `task.allowAutomaticTasks` quando ainda não existia).
+**Ativação automática (recomendado):** ao instalar `@inosx/agent-memory`, o `npm install` adiciona em `.vscode/tasks.json` a tarefa **`agent-memory: watch transcripts`**, que dispara ao **abrir a pasta** e fica a correr (`--wait-for-transcripts` até existir pasta de transcripts). Só o watcher é automático — é ele que mantém o vault sincronizado. O comando **`process`** é opcional, manual, para um passe único de “catch-up” (não confundir com falha se mostrar que já está tudo sincronizado). É necessário permitir tarefas automáticas na primeira vez (o postinstall define `task.allowAutomaticTasks` quando ainda não existia).
 
-**Manual:** `npx agent-memory watch` ou `npx agent-memory watch --wait-for-transcripts`. Processar só o histórico: `npx agent-memory process`.
+**Manual:** `npx agent-memory watch` ou `npx agent-memory watch --wait-for-transcripts`. Catch-up pontual: `npx agent-memory process`.
 
 Isso significa que NÃO é necessário salvar decisões e lições manualmente durante a conversa — o watcher cuida disso.
 

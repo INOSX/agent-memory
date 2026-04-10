@@ -34,7 +34,7 @@ Este ficheiro serve para **copiar e colar noutra IA** (ou adaptar num chat). O b
 
 `@inosx/agent-memory` é um sistema de memória **baseado em ficheiros Markdown** (sem base de dados). Ponto de montagem típico: diretório **`.memory`** (ou outro via `dir` / `AGENT_MEMORY_DIR` / `--dir` na CLI).
 
-**Instalação:** `npm install @inosx/agent-memory`. Expõe o binário **`agent-memory`** (ou `npx @inosx/agent-memory`). Requer **Node.js ≥ 18**. O **postinstall** copia regras `.mdc` para `.cursor/rules/` e **funde** tarefas em `.vscode/tasks.json` para correr **`agent-memory process`** e **`agent-memory watch --wait-for-transcripts`** ao **abrir a pasta** no Cursor/VS Code (e define `task.allowAutomaticTasks` se faltar). Desativar regras: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. Desativar só tarefas VS Code: `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`.
+**Instalação:** `npm install @inosx/agent-memory`. Expõe o binário **`agent-memory`** (ou `npx @inosx/agent-memory`). Requer **Node.js ≥ 18**. O **postinstall** copia regras `.mdc` para `.cursor/rules/` e **funde** tarefas em `.vscode/tasks.json` que invocam **`node node_modules/@inosx/agent-memory/dist/cli.js watch --wait-for-transcripts`** ao **abrir a pasta** (evita corrida do cache `npx`). O **`process`** é apenas CLI manual para catch-up. Desativar regras: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. Desativar só tarefas VS Code: `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`.
 
 **API principal:** `createMemory({ dir, ... })` devolve um objeto com:
 
@@ -55,7 +55,7 @@ Este ficheiro serve para **copiar e colar noutra IA** (ou adaptar num chat). O b
 
 **Ficheiros relevantes:** `_project.md` (contexto partilhado); por agente, ficheiros por categoria; `conversations/`, `.vault/` (checkpoints, índice, logs de compactação, `processed-transcripts.json` para estado do watcher). Documentação detalhada: README e `docs/user-guide.md` do pacote.
 
-**Automação de transcripts Cursor:** watcher (`agent-memory watch`, com **`--wait-for-transcripts`** quando a pasta ainda não existe) e **`agent-memory process`**. O **postinstall** pode fundir tarefas **VS Code/Cursor** para correr ambos ao **abrir a pasta** do projeto. A injeção de contexto (`inject` / `buildContext`) não é iniciada por essas tarefas — ver regra Cursor ou orquestrador.
+**Automação de transcripts Cursor:** watcher (`agent-memory watch`, com **`--wait-for-transcripts`** quando a pasta ainda não existe) e **`agent-memory process`** (one-shot manual). O **postinstall** funde tarefas **VS Code/Cursor** para correr o **watch** ao **abrir a pasta** do projeto. A injeção de contexto (`inject` / `buildContext`) não é iniciada por essas tarefas — ver regra Cursor ou orquestrador.
 
 ### Padrão de ativação de agentes (crítico — não ignores)
 

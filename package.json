@@ -1,6 +1,6 @@
 {
   "name": "@inosx/agent-memory",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "File-based memory for AI agents — vault, BM25 search, context injection, checkpoints, compaction, Cursor transcript watch/process, postinstall Cursor rules + VS Code folder-open tasks",
   "keywords": [
     "ai",
@@ -54,6 +54,7 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke:watcher": "npm run build && node scripts/real-watcher-smoke.mjs",
     "prepublishOnly": "npm run build && node scripts/sync-cursor-rule.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "sync:cursor-rule": "node scripts/sync-cursor-rule.mjs"

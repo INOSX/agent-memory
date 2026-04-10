@@ -12,22 +12,48 @@ const DECISION_PATTERNS = [
   /\boptamos\s+por\b/i, /\badotamos\b/i, /\bvamos\s+usar\b/i,
   /\bwent\s+with\b/i, /\bsettled\s+on\b/i, /\bwe\s+decided\b/i,
   /\bwe\s+chose\b/i, /\bconclusion:/i, /\bconclusão:/i,
-  /\brecomenda[çc]/i, /\brecommend/i, /\bsugest[aã]o/i, /\bsuggest/i,
-  /\bpropon/i, /\bpropose/i, /\babordagem/i, /\bapproach:/i,
+  /\brecomenda[çc]ão\b/i, /\brecommend(ed|ation)\b/i,
+  /\bpropon(ho|emos)\b/i, /\bpropose\s+(to|that|we)\b/i,
 ];
 
 const LESSON_PATTERNS = [
-  /\bwe\s+learned\b/i, /\blesson:/i, /\bnote:/i,
-  /\baprendemos\b/i, /\blição\b/i, /\binsight:/i,
+  /\bwe\s+learned\b/i, /\blesson:/i,
+  /\baprendemos\b/i, /\blição:/i, /\binsight:/i,
   /\bdescoberta:/i, /\bobservação:/i, /\bobservacao:/i,
   /\bimportante:/i, /\bimportant:/i, /\btakeaway/i,
-  /\brisco/i, /\brisk:/i, /\bgap/i, /\bmelhoria/i,
-  /\bimprovement/i, /\bponto\s+(forte|fraco)/i,
-  /\bstack\s+principal/i, /\barquitetura/i, /\barchitecture:/i,
+  /\bnote:\s+\S/i,
+  /\bponto\s+(forte|fraco)/i,
+  /\bcuidado\s+com\b/i, /\bo\s+problema\s+era\b/i,
+  /\bworkaround/i, /\blimitação\b/i, /\blimitation\b/i,
+];
+
+const EXCLUDED_LINE_PATTERNS = [
+  /^\|/,                          // markdown table rows
+  /^#{1,6}\s/,                    // headings
+  /^[`~]{3}/,                     // code fences
+  /^<!--/,                        // HTML comments
+  /^>/,                           // blockquotes
+  /^[-*]\s*$/,                    // bare list markers
+  /^(\d+)\.\s*$/,                 // bare ordered list markers
+  /^\*\*/,                        // bold-only lines (usually labels)
+];
+
+const AGENT_REASONING_PATTERNS = [
+  /^(Let me|I'm thinking|I need to|I should|I'll|I'm also)\b/i,
+  /^(The user seems|The user wants|The user is)\b/i,
+  /^(Actually,|Hmm|Wait,|OK so|Alright)\b/i,
+  /^(Looking at|Checking|Reading|Searching)\b/i,
+  /^(Now I|First I|Next I)\b/i,
 ];
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(text));
+}
+
+function isNoisyLine(trimmed: string): boolean {
+  if (matchesAny(trimmed, EXCLUDED_LINE_PATTERNS)) return true;
+  if (matchesAny(trimmed, AGENT_REASONING_PATTERNS)) return true;
+  return false;
 }
 
 /** Built-in insight extractor using PT + EN heuristic patterns. */
@@ -37,9 +63,10 @@ export const defaultInsightExtractor: InsightExtractor = (messages) => {
 
   for (const msg of messages) {
     if (msg.role !== "agent") continue;
-    const lines = msg.text.split("\n").filter((l) => l.trim().length > 15);
+    const lines = msg.text.split("\n").filter((l) => l.trim().length > 30);
     for (const line of lines) {
       const trimmed = line.trim();
+      if (isNoisyLine(trimmed)) continue;
       if (matchesAny(trimmed, DECISION_PATTERNS) && decisions.length < 10) {
         decisions.push(trimmed.slice(0, 300));
       } else if (matchesAny(trimmed, LESSON_PATTERNS) && lessons.length < 10) {

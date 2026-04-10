@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import type { AgentMemory } from "./index.js";
 import type { InsightExtractor } from "./types.js";
+import { isDuplicate } from "./dedup.js";
 import {
   findTranscriptsDir,
   listTranscripts,
@@ -30,6 +31,10 @@ export interface ProcessResult {
   lessonsExtracted: number;
   handoffsGenerated: number;
   errors: Array<{ transcriptId: string; error: string }>;
+  /** Session folders with a valid `.jsonl` (0 if directory missing or empty). */
+  sessionsFound: number;
+  /** Skipped: `lastLine` and handoff already match watch/`process` state — nothing to do. */
+  sessionsUpToDate: number;
 }
 
 interface ProcessedState {
@@ -71,18 +76,17 @@ function generateHandoffText(
   const agentMsgs = messages.filter((m) => m.role === "agent");
   const userMsgs = messages.filter((m) => m.role === "user");
 
-  const lastAgent = agentMsgs.slice(-3).map((m) => m.text.slice(0, 200).replace(/\n/g, " "));
-  const lastUser = userMsgs.slice(-2).map((m) => m.text.slice(0, 150).replace(/\n/g, " "));
+  const lastUserReq = userMsgs.slice(-2).map((m) => m.text.slice(0, 150).replace(/\n/g, " ")).join("; ");
+  const lastAgentWork = agentMsgs.slice(-2).map((m) => m.text.slice(0, 200).replace(/\n/g, " ")).join("; ");
+  const lastMsg = messages[messages.length - 1];
+  const endedWith = lastMsg ? `${lastMsg.role}: ${lastMsg.text.slice(0, 120).replace(/\n/g, " ")}` : "";
 
-  const parts: string[] = [];
-  if (lastUser.length > 0) {
-    parts.push(`User asked: ${lastUser.join(" | ")}`);
-  }
-  if (lastAgent.length > 0) {
-    parts.push(`Agent responded: ${lastAgent.join(" | ")}`);
-  }
+  const sections: string[] = [`Auto-handoff (${messages.length} messages).`];
+  if (lastUserReq) sections.push(`\n### What was requested\n${lastUserReq}`);
+  if (lastAgentWork) sections.push(`\n### What was done\n${lastAgentWork}`);
+  if (endedWith) sections.push(`\n### Last message\n${endedWith}`);
 
-  return `Auto-handoff from transcript (${messages.length} messages). ${parts.join(". ")}`;
+  return sections.join("\n");
 }
 
 /**
@@ -98,12 +102,28 @@ export async function processTranscripts(
 
   const transcriptsDir = options?.transcriptsDir ?? findTranscriptsDir(workspaceDir);
   if (!transcriptsDir) {
-    return { transcriptsProcessed: 0, decisionsExtracted: 0, lessonsExtracted: 0, handoffsGenerated: 0, errors: [] };
+    return {
+      transcriptsProcessed: 0,
+      decisionsExtracted: 0,
+      lessonsExtracted: 0,
+      handoffsGenerated: 0,
+      errors: [],
+      sessionsFound: 0,
+      sessionsUpToDate: 0,
+    };
   }
 
   const transcripts = listTranscripts(transcriptsDir);
   if (transcripts.length === 0) {
-    return { transcriptsProcessed: 0, decisionsExtracted: 0, lessonsExtracted: 0, handoffsGenerated: 0, errors: [] };
+    return {
+      transcriptsProcessed: 0,
+      decisionsExtracted: 0,
+      lessonsExtracted: 0,
+      handoffsGenerated: 0,
+      errors: [],
+      sessionsFound: 0,
+      sessionsUpToDate: 0,
+    };
   }
 
   const state = loadState(mem.config.dir);
@@ -114,6 +134,8 @@ export async function processTranscripts(
     lessonsExtracted: 0,
     handoffsGenerated: 0,
     errors: [],
+    sessionsFound: transcripts.length,
+    sessionsUpToDate: 0,
   };
 
   for (const transcript of transcripts) {
@@ -121,7 +143,10 @@ export async function processTranscripts(
       const prev = state[transcript.id];
       const fromLine = prev?.lastLine ?? 0;
 
-      if (fromLine >= transcript.lineCount && prev?.handoffGenerated) continue;
+      if (fromLine >= transcript.lineCount && prev?.handoffGenerated) {
+        result.sessionsUpToDate++;
+        continue;
+      }
 
       const hasNewLines = fromLine < transcript.lineCount;
       let newMessages: Array<{ role: string; text: string }> = [];
@@ -133,12 +158,16 @@ export async function processTranscripts(
         if (newMessages.length > 0) {
           const { decisions, lessons } = extractor(newMessages);
 
+          const existingDecisions = await mem.vault.read(agentId, "decisions");
           for (const d of decisions) {
+            if (isDuplicate(d, existingDecisions)) continue;
             await mem.vault.append(agentId, "decisions", d, ["autoextract", "transcript"]);
             result.decisionsExtracted++;
           }
 
+          const existingLessons = await mem.vault.read(agentId, "lessons");
           for (const l of lessons) {
+            if (isDuplicate(l, existingLessons)) continue;
             await mem.vault.append(agentId, "lessons", l, ["autoextract", "transcript"]);
             result.lessonsExtracted++;
           }

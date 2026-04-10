@@ -5,6 +5,7 @@
 import fs from "fs";
 import path from "path";
 import type { AgentMemory } from "./index.js";
+import { isDuplicate } from "./dedup.js";
 import {
   findTranscriptsDir,
   parseTranscript,
@@ -73,19 +74,37 @@ function generateHandoffText(messages: Array<{ role: string; text: string }>): s
   const agentMsgs = messages.filter((m) => m.role === "agent");
   const userMsgs = messages.filter((m) => m.role === "user");
 
-  const lastAgent = agentMsgs.slice(-3).map((m) => m.text.slice(0, 200).replace(/\n/g, " "));
-  const lastUser = userMsgs.slice(-2).map((m) => m.text.slice(0, 150).replace(/\n/g, " "));
+  const lastUserReq = userMsgs.slice(-2).map((m) => m.text.slice(0, 150).replace(/\n/g, " ")).join("; ");
+  const lastAgentWork = agentMsgs.slice(-2).map((m) => m.text.slice(0, 200).replace(/\n/g, " ")).join("; ");
+  const lastMsg = messages[messages.length - 1];
+  const endedWith = lastMsg ? `${lastMsg.role}: ${lastMsg.text.slice(0, 120).replace(/\n/g, " ")}` : "";
 
-  const parts: string[] = [];
-  if (lastUser.length > 0) parts.push(`User asked: ${lastUser.join(" | ")}`);
-  if (lastAgent.length > 0) parts.push(`Agent responded: ${lastAgent.join(" | ")}`);
+  const sections: string[] = [`Auto-handoff (${messages.length} messages).`];
+  if (lastUserReq) sections.push(`\n### What was requested\n${lastUserReq}`);
+  if (lastAgentWork) sections.push(`\n### What was done\n${lastAgentWork}`);
+  if (endedWith) sections.push(`\n### Last message\n${endedWith}`);
 
-  return `Auto-handoff from transcript (${messages.length} messages). ${parts.join(". ")}`;
+  return sections.join("\n");
 }
 
-function resolveJsonlPath(transcriptsDir: string, filename: string): string | null {
-  // filename could be the uuid dir name or the .jsonl file
-  const base = filename.replace(/\.jsonl$/, "").replace(/\/$/, "");
+/**
+ * Map fs.watch `filename` to the absolute JSONL path. On macOS, recursive watch
+ * often reports `uuid/uuid.jsonl`; older behaviour is basename `uuid.jsonl` only.
+ */
+export function resolveJsonlPath(transcriptsDir: string, filename: string | null): string | null {
+  if (!filename) return null;
+  const norm = filename.replace(/\\/g, "/");
+  if (norm.includes("/")) {
+    const parts = norm.split("/").filter(Boolean);
+    const filePart = parts[parts.length - 1] ?? "";
+    const dirPart = parts[parts.length - 2] ?? "";
+    const idFromFile = filePart.replace(/\.jsonl$/i, "");
+    if (dirPart && idFromFile === dirPart) {
+      const candidate = path.join(transcriptsDir, dirPart, `${dirPart}.jsonl`);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  const base = norm.replace(/\.jsonl$/i, "").replace(/\/$/, "");
   const candidate = path.join(transcriptsDir, base, `${base}.jsonl`);
   if (fs.existsSync(candidate)) return candidate;
   return null;
@@ -121,6 +140,33 @@ export function startWatcher(mem: AgentMemory, options?: WatcherOptions): Watche
   const sessions = new Map<string, SessionState>();
   const persistedState = loadState(mem.config.dir);
 
+  let appendsSinceCompact = 0;
+  const COMPACT_AFTER_APPENDS = 50;
+  const COMPACT_INTERVAL_MS = 30 * 60 * 1000;
+
+  async function maybeCompact(): Promise<void> {
+    if (appendsSinceCompact < COMPACT_AFTER_APPENDS) return;
+    try {
+      await mem.compact.run();
+      appendsSinceCompact = 0;
+      log("Auto-compact completed.");
+    } catch (e) {
+      log(`Auto-compact failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const compactInterval = setInterval(async () => {
+    if (appendsSinceCompact > 0) {
+      try {
+        await mem.compact.run();
+        appendsSinceCompact = 0;
+        log("Periodic auto-compact completed.");
+      } catch {
+        /* non-critical */
+      }
+    }
+  }, COMPACT_INTERVAL_MS);
+
   function getSession(transcriptId: string): SessionState {
     if (!sessions.has(transcriptId)) {
       const prev = persistedState[transcriptId];
@@ -151,15 +197,23 @@ export function startWatcher(mem: AgentMemory, options?: WatcherOptions): Watche
 
       const { decisions, lessons } = mem.config.insightExtractor(parsed.messages);
 
+      const existingDecisions = await mem.vault.read(agentId, "decisions");
       for (const d of decisions) {
+        if (isDuplicate(d, existingDecisions)) continue;
         await mem.vault.append(agentId, "decisions", d, ["autoextract", "transcript"]);
+        appendsSinceCompact++;
         log(`Decision saved: ${d.slice(0, 80)}...`);
       }
 
+      const existingLessons = await mem.vault.read(agentId, "lessons");
       for (const l of lessons) {
+        if (isDuplicate(l, existingLessons)) continue;
         await mem.vault.append(agentId, "lessons", l, ["autoextract", "transcript"]);
+        appendsSinceCompact++;
         log(`Lesson saved: ${l.slice(0, 80)}...`);
       }
+
+      await maybeCompact();
 
       session.lastLine = totalLines;
 
@@ -299,6 +353,7 @@ export function startWatcher(mem: AgentMemory, options?: WatcherOptions): Watche
         clearInterval(pollInterval);
         pollInterval = null;
       }
+      clearInterval(compactInterval);
       for (const session of sessions.values()) {
         if (session.debounceTimer) clearTimeout(session.debounceTimer);
         if (session.idleTimer) clearTimeout(session.idleTimer);

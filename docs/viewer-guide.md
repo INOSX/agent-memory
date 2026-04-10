@@ -16,7 +16,7 @@ The viewer reads from the same `.memory/` directory used by the library and CLI.
 
 **Related:**
 - To refresh session checkpoints from `conversations/*.json` without a dashboard timer, run `agent-memory sync-checkpoints` (see [README](../README.md) and [user-guide.md](user-guide.md)).
-- **Cursor / VS Code:** after `npm install @inosx/agent-memory`, **folder-open tasks** typically run **`process`** and **`watch --wait-for-transcripts`** automatically (see [README — Postinstall automation](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks)). You can still run `agent-memory watch` or `agent-memory process` by hand.
+- **Cursor / VS Code:** after `npm install @inosx/agent-memory`, a **folder-open task** runs **`watch --wait-for-transcripts`** automatically (see [README — Postinstall automation](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks)). Run **`agent-memory process`** yourself for a one-shot backlog pass.
 - Entries created by transcript automation appear in the viewer with `autoextract` / `autohandoff` and `transcript` tags.
 
 ## CLI Options

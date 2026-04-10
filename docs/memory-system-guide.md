@@ -1,7 +1,7 @@
 # Memory System Guide
 
 **For:** Users of AI agent dashboards with @inosx/agent-memory  
-**Updated:** 2026-04-07 (npm postinstall: `.vscode` folder-open `process` + `watch --wait-for-transcripts`)  
+**Updated:** 2026-04-07 (npm postinstall: `.vscode` folder-open `watch --wait-for-transcripts` only; `process` is CLI-only)  
 **Version:** 3.0
 
 > **Using the npm package only (no dashboard)?** See the [User Guide](user-guide.md) for installation, CLI, and library usage in standalone projects.
@@ -48,7 +48,7 @@ The next time you open a session with that agent, it will receive this handoff a
 
 ### 2. Automatically via transcript watcher (Cursor / VS Code)
 
-If you use **Cursor** or **VS Code**, the default **`npm install @inosx/agent-memory`** configures **folder-open tasks** (see root README and [User Guide](user-guide.md)): **`process`** runs once, **`watch --wait-for-transcripts`** stays running. Alternatively you can start the watcher yourself:
+If you use **Cursor** or **VS Code**, the default **`npm install @inosx/agent-memory`** configures a **folder-open task** (see root README and [User Guide](user-guide.md)): **`watch --wait-for-transcripts`** stays running. Run **`agent-memory process`** manually when you want a one-shot backlog pass. Alternatively you can start the watcher yourself:
 
 ```bash
 # Start the real-time watcher (runs as a daemon)
@@ -134,7 +134,7 @@ Equivalent in code: `syncCheckpointsFromConversations(createMemory({ dir }), opt
 
 ### Cursor users: transcript watcher
 
-For **Cursor** (and VS Code), the default **`npm install @inosx/agent-memory`** merges **folder-open tasks** into `.vscode/tasks.json` so **`agent-memory process`** and **`agent-memory watch --wait-for-transcripts`** start when you open the workspace (allow automatic tasks if the editor prompts). You can still run manually:
+For **Cursor** (and VS Code), the default **`npm install @inosx/agent-memory`** merges a **folder-open task** into `.vscode/tasks.json` so **`agent-memory watch --wait-for-transcripts`** starts when you open the workspace (allow automatic tasks if the editor prompts). **`process`** is not started automatically. You can still run manually:
 
 ```bash
 agent-memory watch
@@ -595,7 +595,7 @@ Checkpoints expire after 7 days. Vault memories (decisions, lessons, handoffs, t
 Compaction processes `conversations/*.json` files written by the dashboard. Transcript automation processes Cursor's `.jsonl` transcript files. Both use the same PT+EN heuristic patterns for extraction, but they operate on different data sources. You can use both simultaneously.
 
 **Should I run `watch` or `process`?**
-With default postinstall, **both** run when you open the workspace (`process` once per open, `watch` continuous). Manually: use **`watch`** for ongoing monitoring; use **`process`** for a one-shot backlog (CI, or before starting `watch` without folder-open tasks).
+With default postinstall, **`watch`** runs when you open the workspace (continuous). Use **`process`** only for a manual one-shot backlog (CI, or catch-up without the daemon). Manually: **`watch`** for ongoing monitoring; **`process`** for a single import pass.
 
 **Can I edit `_project.md` directly in a text editor?**
 Yes. The file is at `.memory/_project.md` and is plain text markdown. Changes are reflected immediately in the next session of any agent.

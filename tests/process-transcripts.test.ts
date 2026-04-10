@@ -4,6 +4,8 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import { createMemory } from "../src/index.js";
 import { processTranscripts } from "../src/process-transcripts.js";
+import { isDuplicate } from "../src/dedup.js";
+import { defaultInsightExtractor } from "../src/compact.js";
 
 function makeLine(role: "user" | "assistant", text: string): string {
   return JSON.stringify({ role, message: { content: [{ type: "text", text }] } });
@@ -36,6 +38,8 @@ describe("processTranscripts", () => {
     expect(r.decisionsExtracted).toBe(0);
     expect(r.lessonsExtracted).toBe(0);
     expect(r.handoffsGenerated).toBe(0);
+    expect(r.sessionsFound).toBe(0);
+    expect(r.sessionsUpToDate).toBe(0);
   });
 
   it("extracts decisions from transcript with decision patterns", async () => {
@@ -112,6 +116,8 @@ describe("processTranscripts", () => {
 
     const r2 = await processTranscripts(mem, { transcriptsDir, idleThresholdMinutes: 5 });
     expect(r2.transcriptsProcessed).toBe(0);
+    expect(r2.sessionsFound).toBe(1);
+    expect(r2.sessionsUpToDate).toBe(1);
   });
 
   it("processes new lines incrementally after initial processing", async () => {
@@ -181,5 +187,118 @@ describe("processTranscripts", () => {
 
     const decisions = await mem.vault.read("my-agent", "decisions");
     expect(decisions.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("skips duplicate decisions already in vault", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "am-pt-"));
+    const transcriptsDir = path.join(dir, "transcripts");
+    fs.mkdirSync(transcriptsDir);
+
+    const memDir = path.join(dir, ".memory");
+    const mem = createMemory({ dir: memDir });
+
+    await mem.vault.append("default", "decisions", "We decided to use PostgreSQL for the database.", ["manual"]);
+
+    setupTranscript(transcriptsDir, "dup-001", [
+      makeLine("user", "hello"),
+      makeLine("assistant", "We decided to use PostgreSQL for the database."),
+    ], -600_000);
+
+    const r = await processTranscripts(mem, { transcriptsDir, idleThresholdMinutes: 5 });
+    expect(r.decisionsExtracted).toBe(0);
+
+    const decisions = await mem.vault.read("default", "decisions");
+    expect(decisions).toHaveLength(1);
+  });
+});
+
+describe("defaultInsightExtractor filters", () => {
+  it("rejects markdown table rows", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "| **Decisions** | Escolhas que foram feitas | \"Vamos usar SSE e não WebSocket\" |" },
+    ]);
+    expect(result.decisions).toHaveLength(0);
+    expect(result.lessons).toHaveLength(0);
+  });
+
+  it("rejects headings", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "### Recomendação em Git para este projecto" },
+    ]);
+    expect(result.decisions).toHaveLength(0);
+  });
+
+  it("rejects agent reasoning lines", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "Let me re-read the docs and code to understand the intended design better." },
+      { role: "agent", text: "The user seems to think there should be some automatic population." },
+      { role: "agent", text: "Actually, I think we should approach this differently for now." },
+    ]);
+    expect(result.decisions).toHaveLength(0);
+    expect(result.lessons).toHaveLength(0);
+  });
+
+  it("rejects code fence markers and blockquotes", () => {
+    const fences = defaultInsightExtractor([
+      { role: "agent", text: "```typescript we decided to use this specific approach for the entire project```" },
+    ]);
+    expect(fences.decisions).toHaveLength(0);
+
+    const quotes = defaultInsightExtractor([
+      { role: "agent", text: "> Important: we decided to use this approach in the quote block specifically" },
+    ]);
+    expect(quotes.decisions).toHaveLength(0);
+  });
+
+  it("rejects lines shorter than 30 chars", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "We decided to use X." },
+    ]);
+    expect(result.decisions).toHaveLength(0);
+  });
+
+  it("accepts real decisions that pass all filters", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "We decided to use Zustand for global state management because it is lightweight and simple." },
+    ]);
+    expect(result.decisions).toHaveLength(1);
+    expect(result.decisions[0]).toContain("Zustand");
+  });
+
+  it("accepts real lessons that pass all filters", () => {
+    const result = defaultInsightExtractor([
+      { role: "agent", text: "We learned that spawn() on Windows does not fire close event with reliable exit code." },
+    ]);
+    expect(result.lessons).toHaveLength(1);
+  });
+});
+
+describe("isDuplicate", () => {
+  it("detects exact duplicate content", () => {
+    const existing = [
+      { id: "1", date: "2026-01-01", content: "We decided to use PostgreSQL for the database.", tags: [], agentId: "default", category: "decisions" },
+    ];
+    expect(isDuplicate("We decided to use PostgreSQL for the database.", existing)).toBe(true);
+  });
+
+  it("detects case-insensitive duplicates", () => {
+    const existing = [
+      { id: "1", date: "2026-01-01", content: "We decided to use PostgreSQL for the database.", tags: [], agentId: "default", category: "decisions" },
+    ];
+    expect(isDuplicate("we decided to use postgresql for the database.", existing)).toBe(true);
+  });
+
+  it("allows different content", () => {
+    const existing = [
+      { id: "1", date: "2026-01-01", content: "We decided to use PostgreSQL for the database.", tags: [], agentId: "default", category: "decisions" },
+    ];
+    expect(isDuplicate("We decided to use SQLite for simplicity and portability.", existing)).toBe(false);
+  });
+
+  it("returns false for very short candidates", () => {
+    const existing = [
+      { id: "1", date: "2026-01-01", content: "short", tags: [], agentId: "default", category: "decisions" },
+    ];
+    expect(isDuplicate("short", existing)).toBe(false);
   });
 });

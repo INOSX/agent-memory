@@ -4,7 +4,7 @@
     {
       "label": "agent-memory: watch transcripts",
       "type": "shell",
-      "command": "npx agent-memory watch --wait-for-transcripts",
+      "command": "node dist/cli.js watch --wait-for-transcripts",
       "options": { "cwd": "${workspaceFolder}" },
       "runOptions": {
         "runOn": "folderOpen",
@@ -13,21 +13,6 @@
       "presentation": {
         "reveal": "silent",
         "panel": "dedicated",
-        "showReuseMessage": false
-      }
-    },
-    {
-      "label": "agent-memory: process transcript backlog",
-      "type": "shell",
-      "command": "npx agent-memory process",
-      "options": { "cwd": "${workspaceFolder}" },
-      "runOptions": {
-        "runOn": "folderOpen",
-        "instanceLimit": 1
-      },
-      "presentation": {
-        "reveal": "silent",
-        "panel": "shared",
         "showReuseMessage": false
       }
     }

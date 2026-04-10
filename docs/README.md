@@ -5,6 +5,7 @@ Index of documentation for the package.
 | Document | Description |
 |----------|-------------|
 | [**Memória explicada para leigos**](memoria-explicada-leigos.md) | **PT:** pitch acessível — o que é o framework, para quem, benefícios e limitações (não é manual técnico) |
+| [**Como instalar / atualizar (PT)**](how-to-instalar-atualizar-agent-memory.md) | **PT:** passos para `npm install` / `@latest`, o que mudou na 0.5.x (watch vs `process`), verificação e env vars do postinstall |
 | [**User Guide**](user-guide.md) | **Start here:** installation (postinstall: Cursor rules + VS Code folder-open tasks), concepts, library, CLI, BMAD integration, troubleshooting |
 | [Memory System (technical)](memory-system.md) | Architecture (five layers), data flow, postinstall / `.vscode` folder-open tasks, Layer 1 `sync-checkpoints`, transcript automation (Section 18: watch, `process`, `--wait-for-transcripts`), REST notes, compaction, types |
 | [Memory System Guide (dashboard)](memory-system-guide.md) | End-user guide when memory is used inside an agent dashboard (sessions, Memory Vault UI, lifecycle) |
@@ -16,7 +17,7 @@ Index of documentation for the package.
 
 ## Automatic activation (summary)
 
-After **`npm install @inosx/agent-memory`** in a consumer project, **postinstall** installs Cursor rules and merges **VS Code/Cursor** tasks that run **`agent-memory process`** and **`agent-memory watch --wait-for-transcripts`** when the **workspace folder opens**. Details, opt-out env vars, and the full env table: root [README — Postinstall automation](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks).
+After **`npm install @inosx/agent-memory`** in a consumer project, **postinstall** installs Cursor rules and merges a **VS Code/Cursor** folder-open task that runs **`agent-memory watch --wait-for-transcripts`** (continuous). **`agent-memory process`** is CLI-only for manual catch-up. Details, opt-out env vars, and the full env table: root [README — Postinstall automation](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks).
 
 ## Quick links
 

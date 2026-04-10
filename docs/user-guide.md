@@ -35,7 +35,7 @@ The package also installs a command-line tool named `agent-memory`. You can run 
 - `npx agent-memory --help` (from a project that depends on the package), or  
 - `npx @inosx/agent-memory --help` if you prefer invoking the package name directly.
 
-**Cursor / VS Code:** `npm install` runs **postinstall** that (1) copies all `.mdc` rules into **`.cursor/rules/`**, (2) merges **`.vscode/tasks.json`** so **`process`** and **`watch --wait-for-transcripts`** run when you **open the workspace** (folder-open tasks), and (3) sets **`task.allowAutomaticTasks`** in **`.vscode/settings.json`** if it was unset. Skip rules only: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. Skip task merge only: `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`. Verbose: `AGENT_MEMORY_VERBOSE=1`. See the root [README](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks).
+**Cursor / VS Code:** `npm install` runs **postinstall** that (1) copies all `.mdc` rules into **`.cursor/rules/`**, (2) merges **`.vscode/tasks.json`** with a folder-open task that runs **`node node_modules/@inosx/agent-memory/dist/cli.js watch --wait-for-transcripts`** (not `npx`, to avoid parallel npx cache races), and (3) sets **`task.allowAutomaticTasks`** in **`.vscode/settings.json`** if it was unset. Postinstall also **removes** the legacy **`process`-on-open** task if present. Run **`agent-memory process` manually** when you want a one-shot backlog pass. Re-run **`npm install @inosx/agent-memory@latest`** to refresh task commands after a package upgrade. Skip rules only: `AGENT_MEMORY_SKIP_CURSOR_RULE=1`. Skip task merge only: `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`. Verbose: `AGENT_MEMORY_VERBOSE=1`. See the root [README](../README.md#postinstall-automation-cursor-rules-and-vs-code-tasks).
 
 **Cursor transcript automation:** with the default install, opening the project in Cursor/VS Code starts the watcher automatically (after you allow automatic tasks if the editor asks). You can still run `agent-memory watch` or `agent-memory process` manually. See [Transcript automation](#transcript-automation-cursor) below.
 
@@ -278,13 +278,13 @@ agent-memory vault add dev decisions --content "Chose Vitest — align with repo
 
 ### Cursor: auto-capture everything (default vs manual)
 
-**Default:** after install, **open the project folder** in Cursor or VS Code and **allow automatic tasks** if prompted. Postinstall merges tasks that run **`process`** once and **`watch --wait-for-transcripts`** in the background — no separate terminal needed.
+**Default:** after install, **open the project folder** in Cursor or VS Code and **allow automatic tasks** if prompted. Postinstall merges a task that runs **`watch --wait-for-transcripts`** in the background (continuous) — no separate terminal needed. Optional one-shot catch-up: run **`agent-memory process`** yourself.
 
 **Manual (same behaviour as the tasks):**
 
 ```bash
 # One-shot backlog, then long-running watcher (optional if folder-open tasks are enabled)
-agent-memory process && agent-memory watch --wait-for-transcripts
+agent-memory watch --wait-for-transcripts
 
 # Or only the watcher (fails immediately if transcripts dir does not exist yet)
 agent-memory watch

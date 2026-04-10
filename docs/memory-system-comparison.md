@@ -259,7 +259,7 @@ The **standalone npm library** extracted from the AITeam memory design is a **lo
 
 | Topic | Behaviour |
 |-------|-----------|
-| **Automatic capture from Cursor** | Optional **`fs.watch`** on `~/.cursor/projects/<slug>/agent-transcripts/*.jsonl`; **`npm install`** can merge **VS Code folder-open tasks** so `process` + `watch --wait-for-transcripts` start without a manual terminal. |
+| **Automatic capture from Cursor** | Optional **`fs.watch`** on `~/.cursor/projects/<slug>/agent-transcripts/*.jsonl`; **`npm install`** can merge a **VS Code folder-open task** so **`watch --wait-for-transcripts`** runs without a manual terminal; **`process`** is CLI-only for one-shot catch-up. |
 | **Injection into the model** | Not started by those tasks; the **Cursor rule** asks the agent to run **`inject preview`** (or the host app calls `buildContext`). |
 | **Veto window** | Unlike the AITeam dashboard’s 10-minute **🤖 llm** flow described above, heuristic transcript entries go straight to the vault — review/edit in the **viewer** or Markdown. |
 | **UI** | Optional **`agent-memory viewer`** CLI (built-in HTTP UI), not the full AITeam Memory Vault. |

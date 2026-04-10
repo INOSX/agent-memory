@@ -17,7 +17,7 @@ Built and battle-tested inside [AITEAM-X](https://github.com/INOSX/AITeam), extr
 - **Migration** — One-way migration from flat markdown to structured vault format
 - **CLI** — `agent-memory` command to list agents, manage vault entries, search, edit project context, preview injection, **sync checkpoints from conversation files**, **watch/process Cursor transcripts**, run compaction, and migrate
 - **Viewer** — Built-in standalone web dashboard to browse agents, vault entries, search, and run compaction — zero extra dependencies
-- **Cursor / VS Code** — `postinstall` installs rules into `.cursor/rules/` and merges **folder-open tasks** (transcript `process` + `watch`) into `.vscode/tasks.json`
+- **Cursor / VS Code** — `postinstall` installs rules into `.cursor/rules/` and merges a **folder-open task** that runs transcript **`watch`** into `.vscode/tasks.json` (continuous automation; `process` stays CLI-only for manual catch-up)
 
 ## Install
 
@@ -32,9 +32,7 @@ The package exposes a `bin` named `agent-memory` (also available via `npx @inosx
 On `npm install`, a **lifecycle script**:
 
 1. Copies every `.mdc` from the package into your project’s **`.cursor/rules/`** (creates folders if needed).
-2. **Merges** VS Code/Cursor **`.vscode/tasks.json`** so that when you **open the workspace folder**, two tasks run automatically:
-   - **`agent-memory: process transcript backlog`** — one-shot `npx agent-memory process`
-   - **`agent-memory: watch transcripts`** — `npx agent-memory watch --wait-for-transcripts` (polls until Cursor’s transcript folder exists, then keeps running)
+2. **Merges** VS Code/Cursor **`.vscode/tasks.json`** so that when you **open the workspace folder**, **`agent-memory: watch transcripts`** runs automatically (`watch --wait-for-transcripts`; uses **`node node_modules/@inosx/agent-memory/dist/cli.js`** — not `npx`, to avoid parallel npx cache races). It keeps running and handles new transcript lines. Older installs had a second folder-open **`process`** task; postinstall **removes** that legacy task so only the watcher stays. Run **`agent-memory process` yourself** when you want a one-shot backlog pass without the daemon.
 3. If `.vscode/settings.json` has no `task.allowAutomaticTasks`, it sets **`"task.allowAutomaticTasks": "on"`** so folder-open tasks are allowed (you may still see a one-time trust prompt in the editor).
 
 No extra steps in normal setups: install the package, open the project in Cursor/VS Code, accept automatic tasks if prompted.
@@ -54,7 +52,7 @@ No extra steps in normal setups: install the package, open the project in Cursor
 | `AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1` | `npm install` | Do not merge `.vscode/tasks.json` or touch `task.allowAutomaticTasks`. |
 | `AGENT_MEMORY_VERBOSE=1` | `npm install` | Print postinstall paths and counts. |
 
-This repository includes **`.vscode/tasks.json`** and **`.vscode/settings.json`** so contributors get the same folder-open behaviour without relying on postinstall inside the package source tree.
+This repository includes **`.vscode/tasks.json`** and **`.vscode/settings.json`** using **`node dist/cli.js …`** so contributors run the local build (run **`npm run build`** before relying on folder-open tasks, or use `npm test` which builds first).
 
 ## CLI
 

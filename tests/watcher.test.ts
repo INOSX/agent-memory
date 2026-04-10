@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { createMemory } from "../src/index.js";
-import { startWatcher } from "../src/watcher.js";
+import { resolveJsonlPath, startWatcher } from "../src/watcher.js";
 
 function makeLine(role: "user" | "assistant", text: string): string {
   return JSON.stringify({ role, message: { content: [{ type: "text", text }] } });
@@ -158,5 +158,25 @@ describe("startWatcher", () => {
 
     const decisions = await mem.vault.read("my-agent", "decisions");
     expect(decisions.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("resolveJsonlPath", () => {
+  it("resolves basename-only watch events (uuid.jsonl)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "am-rjp-"));
+    const tDir = setupTranscriptsDir(dir);
+    const id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    writeTranscript(tDir, id, [makeLine("user", "hi")]);
+    const resolved = resolveJsonlPath(tDir, `${id}.jsonl`);
+    expect(resolved).toBe(path.join(tDir, id, `${id}.jsonl`));
+  });
+
+  it("resolves nested watch events (uuid/uuid.jsonl) as on macOS recursive fs.watch", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "am-rjp-"));
+    const tDir = setupTranscriptsDir(dir);
+    const id = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+    writeTranscript(tDir, id, [makeLine("user", "hi")]);
+    const resolved = resolveJsonlPath(tDir, `${id}/${id}.jsonl`);
+    expect(resolved).toBe(path.join(tDir, id, `${id}.jsonl`));
   });
 });

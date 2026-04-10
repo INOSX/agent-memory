@@ -69,7 +69,7 @@ Em termos simples:
 2. **Durante** o trabalho, a conversa pode ser **guardada** de forma periódica, para recuperação ou continuidade.
 3. **Depois**, ao fechar ou ao fazer manutenção, pode haver **limpeza** e **extração de ideias** para não deixar tudo crescer sem controlo.
 
-Adicionalmente, para utilizadores de **Cursor** ou **VS Code**, ao instalar o pacote o projeto pode ficar com tarefas que **arrancam ao abrir a pasta** (`process` + `watch`), para o observador trabalhar sem comandos manuais. Em alternativa, pode correr-se `agent-memory watch` à mão — lê as conversas em tempo real e extrai decisões, lições e resumos sem fechar a sessão de forma especial.
+Adicionalmente, para utilizadores de **Cursor** ou **VS Code**, ao instalar o pacote o projeto pode ficar com uma tarefa que **arranca ao abrir a pasta** (`watch` contínuo), para o observador trabalhar sem comandos manuais. O comando **`process`** é opcional, para um passe único de histórico. Em alternativa, pode correr-se `agent-memory watch` à mão — lê as conversas em tempo real e extrai decisões, lições e resumos sem fechar a sessão de forma especial.
 
 O utilizador final pode nem ver estes passos — mas é isto que permite que a **próxima** conversa não comece “vazia”.
 

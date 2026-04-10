@@ -586,6 +586,11 @@ async function main(): Promise<void> {
           workspaceDir: cwd,
           quiet,
         });
+        if (!quiet) {
+          console.log(
+            "[agent-memory watch] Long-lived task: new transcript lines → vault after debounce; idle sessions → handoff. Run `process` only for a manual one-shot catch-up.",
+          );
+        }
 
         const shutdown = () => {
           handle.stop();
@@ -617,10 +622,25 @@ async function main(): Promise<void> {
         if (getGlobalOpts(cmd).json) {
           console.log(JSON.stringify(result));
         } else {
-          console.log(`Transcripts processed: ${result.transcriptsProcessed}`);
-          console.log(`Decisions extracted: ${result.decisionsExtracted}`);
-          console.log(`Lessons extracted: ${result.lessonsExtracted}`);
-          console.log(`Handoffs generated: ${result.handoffsGenerated}`);
+          const { sessionsFound, sessionsUpToDate } = result;
+          if (sessionsFound === 0) {
+            console.log(
+              "[agent-memory process] No Cursor transcript sessions found (or transcripts directory missing).",
+            );
+          } else if (result.transcriptsProcessed === 0 && sessionsUpToDate === sessionsFound) {
+            console.log(
+              `[agent-memory process] ${sessionsFound} session(s) already in sync with .memory/.vault/processed-transcripts.json (watch or a previous run handled them). Nothing new to import.`,
+            );
+          } else {
+            console.log(`[agent-memory process] Transcript sessions found: ${sessionsFound}`);
+            if (sessionsUpToDate > 0) {
+              console.log(`[agent-memory process] Already up to date (skipped): ${sessionsUpToDate}`);
+            }
+            console.log(`[agent-memory process] Sessions with new work this run: ${result.transcriptsProcessed}`);
+            console.log(`[agent-memory process] Decisions extracted: ${result.decisionsExtracted}`);
+            console.log(`[agent-memory process] Lessons extracted: ${result.lessonsExtracted}`);
+            console.log(`[agent-memory process] Handoffs generated: ${result.handoffsGenerated}`);
+          }
           if (result.errors.length > 0) {
             for (const e of result.errors) console.error(`  ${e.transcriptId}: ${e.error}`);
           }

@@ -180,7 +180,7 @@ For each JSON file in `conversations/`, the command compares the conversation’
 
 Programmatic equivalent: `syncCheckpointsFromConversations(createMemory({ dir }), options)` from the package root export.
 
-**Cursor / VS Code (npm consumer):** installing `@inosx/agent-memory` runs **postinstall** that: (1) copies all `.mdc` rules into **`.cursor/rules/`** (`alwaysApply`); (2) **merges** **`.vscode/tasks.json`** with folder-open tasks **`agent-memory process`** and **`agent-memory watch --wait-for-transcripts`**; (3) sets **`task.allowAutomaticTasks`** to **`"on"`** in **`.vscode/settings.json`** when that key is absent. Skip rules only: **`AGENT_MEMORY_SKIP_CURSOR_RULE=1`**. Skip VS Code merge only: **`AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`**. Verbose: **`AGENT_MEMORY_VERBOSE=1`**. The default rule instructs the agent to run **`inject preview`** at session start; transcript-to-vault extraction is handled by **`watch`** / **`process`** (see [Section 18](#18-transcript-automation)).
+**Cursor / VS Code (npm consumer):** installing `@inosx/agent-memory` runs **postinstall** that: (1) copies all `.mdc` rules into **`.cursor/rules/`** (`alwaysApply`); (2) **merges** **`.vscode/tasks.json`** with a folder-open task **`agent-memory watch --wait-for-transcripts`** and **removes** the legacy **`process`-on-open** task if present; (3) sets **`task.allowAutomaticTasks`** to **`"on"`** in **`.vscode/settings.json`** when that key is absent. Skip rules only: **`AGENT_MEMORY_SKIP_CURSOR_RULE=1`**. Skip VS Code merge only: **`AGENT_MEMORY_SKIP_VSCODE_AUTOMATION=1`**. Verbose: **`AGENT_MEMORY_VERBOSE=1`**. The default rule instructs the agent to run **`inject preview`** at session start; continuous transcript-to-vault extraction is **`watch`**; **`process`** is optional manual catch-up (see [Section 18](#18-transcript-automation)).
 
 ### Session API (`lib/memory/session.ts`)
 
@@ -903,12 +903,15 @@ The transcript automation system enables the memory framework to learn from Curs
 
 ### Default activation (postinstall + editor)
 
-When the package is installed as a **dependency** (not when developing this repo), **postinstall** adds or merges VS Code/Cursor **tasks** so that opening the **workspace folder** runs:
+When the package is installed as a **dependency** (not when developing this repo), **postinstall** adds or merges VS Code/Cursor **tasks** so that opening the **workspace folder** runs the watcher only:
 
-| Task label | Command | Role |
+| Task label | Command (consumer, `cwd` = workspace root) | Role |
 |------------|---------|------|
-| `agent-memory: process transcript backlog` | `npx agent-memory process` | Catches up unprocessed transcript lines (one-shot per open). |
-| `agent-memory: watch transcripts` | `npx agent-memory watch --wait-for-transcripts` | Long-lived watcher; **`--wait-for-transcripts`** polls every 15s until `~/.cursor/projects/<slug>/agent-transcripts/` exists. |
+| `agent-memory: watch transcripts` | `node node_modules/@inosx/agent-memory/dist/cli.js watch --wait-for-transcripts` | Long-lived watcher; **`--wait-for-transcripts`** polls every 15s until `~/.cursor/projects/<slug>/agent-transcripts/` exists. |
+
+One-shot **`agent-memory process`** is **not** a folder-open task; run it manually when you want a backlog pass (e.g. without the daemon). Postinstall **removes** the old **`agent-memory: process transcript backlog`** task from merged `tasks.json` if it is still present.
+
+In **this** repository, committed tasks use **`node dist/cli.js …`** instead (no self-install under `node_modules/@inosx/agent-memory`).
 
 The editor may prompt once to **allow automatic tasks**. **Context injection** (`inject preview` / `buildContext`) is **not** started by these tasks — it remains driven by the **Cursor rule** (agent runs CLI) or by the host application.
 
